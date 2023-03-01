@@ -24,6 +24,6 @@ You can use your own Poetry if you feel like it. No worries.
 
 ## License
 
-> Can you even license university coursework?
+> Can you even license university course work?
 
 The Unlicense. 🤓
