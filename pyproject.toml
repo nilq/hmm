@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "hmm"
+version = "0.1.0"
+description = "A hidden Markov model of visual attention."
+authors = ["Niels Horn", "Jinyang Liu", "Oscar Hedeby", "Frederik Sunesen"]
+license = "The Unlicense"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "~3.10"
+streamlit = "^1.19.0"
+jax = "^0.4.4"
+ruff = "^0.0.253"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
