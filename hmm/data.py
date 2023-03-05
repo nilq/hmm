@@ -3,10 +3,10 @@
 from pathlib import Path
 
 import numpy as np
-import numpy.typing as npt
+from hmm.types import FloatArray
 
 
-def load_csv(path: Path | str) -> npt.NDArray[np.float_]:
+def load_csv(path: Path | str) -> FloatArray:
     """Load data from txt.
 
     Args:
