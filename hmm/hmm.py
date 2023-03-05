@@ -48,6 +48,8 @@ class HMM:
         self._num_hiddens = transition.shape[0]
         self._num_states = emission.shape[1]
 
+
+
     @numba.jit
     def forward(self, observations: npt.NDArray) -> FloatArray:
         """Compute forward trellis using forward algorithm.
