@@ -41,4 +41,6 @@ These things can be automated with IDE extensions.
 
 > Can you even license university course work?
 
+> Yes, with the Un'i'license! "bu dum tsh"
+
 The Unlicense. 🤓
