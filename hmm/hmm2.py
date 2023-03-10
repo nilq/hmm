@@ -37,15 +37,20 @@ class HMM2:
         current_C = initial_C
         observations = {}
         activations = np.array([])
+        focus = np.array([])
+        processing_modes = []
         for current_t in range(t):
             Z = self.sample_hidden_Z(n, current_C)
             X = self.stimuli_sample_method(Z)
-            observations[current_t] = {
-                'C': current_C,
-                'Z': Z,
-                'X': X
-            }
-
+            processing_modes.append(current_C)
+            focus = np.vstack([focus, Z]) if focus.any() else Z
             activations = np.vstack([activations, X]) if activations.any() else X
+
+            # observations[current_t] = {
+            #     'C': current_C,
+            #     'Z': Z,
+            #     'X': X
+            # }
+
             current_C = self.sample_hidden_C(current_C)
-        return activations, observations
+        return processing_modes, focus, activations
