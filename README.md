@@ -8,7 +8,7 @@ To save the environment, we use Conda. Simply create and activate the environmen
 
 ```
 conda env create -f conda.yaml
-conda env activate hmm
+conda activate hmm
 ```
 
 ### Dependencies 📦
