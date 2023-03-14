@@ -15,30 +15,24 @@ Gamma = np.array([
     [beta / 2, beta / 2, 1 - beta]
 ])
 
-# simulate
-hmm = HMM2(Gamma, alpha, lambda Z: poisson_stimuli_sample_method(Z, rates))
-n = 10
-t = 100
 
-def run_and_test(times: int):
-    p_modes = []
-    sim_Xs = []
+def run_and_test(t = 1):
+    # simulate
+    hmm = HMM2(Gamma, alpha, lambda Z: poisson_stimuli_sample_method(Z, rates))
+    n = 10
+
     # We do multiclass logistic regression on processing_modes (C) given the activations (X)
-    for _ in range(times):
-        processing_modes, sim_Z, sim_X = hmm.forward(n, t)
-        p_modes += processing_modes
-        sim_Xs += sim_X.tolist()
+    processing_modes, sim_Z, sim_X = hmm.forward(n, t=t)
 
-    linear_model = LogisticRegression(random_state=0, max_iter=1000)
-    linear_model.fit(sim_Xs, p_modes)
+    linear_model = LogisticRegression(random_state=0, max_iter=1000, n_jobs=-1)
+    linear_model.fit(sim_X, processing_modes)
 
+    processing_modes, sim_Z, sim_X = hmm.forward(n, t=1000)
 
-    processing_modes, sim_Z, sim_X = hmm.forward(n, t)
     # We then see how well the model predicts the processing modes
-    print(linear_model.score(sim_X, processing_modes))
+    print(f"t = {t}, accuracy = {linear_model.score(sim_X, processing_modes)}")
 
-
-for i in range(10):
-    run_and_test(i+1)
+for t in [10, 50, 100, 200, 500, 1000]:
+    run_and_test(t)
 
 
