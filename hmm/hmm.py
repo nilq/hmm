@@ -1,93 +1,106 @@
 """Hidden Markov Model implementation."""
 
-import numba
 import numpy as np
 import numpy.typing as npt
 
-from numpy.random import choice
-from hmm.types import FloatArray
-from itertools import product
+from hmm.types import FloatArray, IntArray
+
+from typing import Callable
 
 
-# Unnecessarily fast.
-@numba.njit(parallel=True, fastmath=True)
-def logsumexp(x: npt.ArrayLike[float]) -> float:
-    """Compute log-sum-exp using the trick.
-
-    Args:
-        x (npt.ArrayLike[float]): Array of log-probabilities.
-    
-    Returns:
-        float: Log-sum-exp of x.
-    """
-    c = x.max()
-    return c + np.log(np.sum(np.exp(x - c)))
+def sample_poisson_stimuli(z_values: IntArray, rates: IntArray):
+    sample_rates = [rates[z] for z in z_values]
+    return np.random.poisson(sample_rates)
 
 
 class HMM:
-    """Hidden Markov Model."""
-
     def __init__(
         self,
-        prior: FloatArray,
         transition: FloatArray,
-        emission: FloatArray,
+        alpha: list[float],
+        sample_stimuli: Callable[[IntArray], IntArray],
+        states: list[int],
     ) -> None:
-        """Initialise hidden markov model with relevant probabilities.
+        """Initialise HMM.
 
         Args:
-            prior (FloatArray): Prior vector of probabilities for each latent state.
-            transition (FloatArray): Transition probability matrix for model states.
-            emission (FloatArray): Emission probability matrix for observations.
+            transition (FloatArray): Transition probability matrix.
+            alpha (list[float]): Alpha probabilities.
+            sample_stimuli (Callable[[IntArray], IntArray]): Stimuli-sampling function. Just the Poisson one.
+            states (list[int]): States for HMM.
         """
-        self.prior = prior
-        self.transition = transition  # Denoted uppercase gamma (Γ).
-        self.emission = emission  # P(X = x | Z = z) = Poisson - with mean λ_z > 0.
+        self.alpha = alpha
+        self.transition = transition  # Uppercase gamma.
 
-        # May come in handy.
-        self._num_hiddens = transition.shape[0]
-        self._num_states = emission.shape[1]
+        # Sampling from Poisson distribution; P(X_{t,i} = x | Z_{t,i} = z).
+        self.sample_stimuli = sample_stimuli
+        self.states = states
 
-
-
-    @numba.jit
-    def forward(self, observations: npt.NDArray) -> FloatArray:
-        """Compute forward trellis using forward algorithm.
-        
-        Notes:
-            This one is the O(2TN^T) forward-pass.
+    def sample_hidden_c(self, current_c: int) -> int:
+        """Sample C-value weighted by transition matrix.
 
         Args:
-            observations (npt.NDArray): Observation sequence.
-
-        Raises:
-            ValueError: If observations are not 1D.
+            current_c (int): Current C-value to transition from.
 
         Returns:
-            FloatArray: Two-dimensional forward trellis (α) matrix.
+            int: New C-value.
         """
-        if len(observations.shape) > 1:
-            raise ValueError("Observations should be 1D. What are you doing?")
+        return np.random.choice(self.states, p=self.transition[current_c])
 
-        alpha: FloatArray = np.zeros([self._num_hiddens, observations.shape[0]])
+    def sample_hidden_z(self, size: int, current_c: int) -> IntArray:
+        """Sample hidden Z-value.
 
-        # Set initial state probabilities by first observation.
-        for state in range(self._num_hiddens):
-            alpha[state, 0] = np.log(self.prior[state]) + np.log(
-                self.emission[state, observations[0]]
-            )
+        Args:
+            size (int): Size of binomial sample.
+            current_c (int): Current C-value to sample Z.
 
-        # Forward!
-        for t, observation, state in product(
-            enumerate(observations), range(self._num_hiddens)
-        ):
-            alpha[state, t] = logsumexp(
-                [
-                    alpha[state_, t - 1]
-                        + np.log(self.transition[state_, state])
-                        + np.log(self.emission[state, observation])
-                    for state_ in range(self._num_hiddens)
-                ]
-            )
+        Returns:
+            IntArray: Sampled Z-values.
+        """
+        match current_c:
+            case 0:
+                p = 1 - self.alpha
+            case 1:
+                p = self.alpha
+            case 2:
+                p = 0.5
 
-        return alpha
+        return np.random.binomial(n=1, p=p, size=size)
+
+    def forward(
+        self, num_nodes: int, time_steps=100, initial_c=2
+    ) -> tuple[list[int], FloatArray, FloatArray]:
+        """Run forward simulation with specified node amount and time steps.
+
+        Args:
+            num_nodes (int): Number of C-nodes.
+            time_steps (int, optional): Time steps in forward simulation. Defaults to 100.
+            initial_c (int, optional): Initial C-value. Defaults to 2.
+
+        Returns:
+            tuple[list[int], FloatArray, FloatArray]: Processing modes (C), focus (Z), activations (X).
+        """
+        current_c: int = initial_c
+
+        activations: FloatArray = np.array([])
+
+        focus: npt.NDArray[np.int32] = np.array([])
+        processing_modes: list[int] = []
+
+        for t in range(time_steps):
+            z = self.sample_hidden_z(num_nodes, current_c)
+            x = self.sample_stimuli(z)
+
+            processing_modes.append(current_c)
+
+            # After first step, we have values.
+            if t > 0:
+                focus = np.vstack([focus, z])
+                activations = np.vstack([activations, x])
+            else:
+                focus = z
+                activations = x
+
+            current_c = self.sample_hidden_c(current_c)
+
+        return processing_modes, focus, activations
