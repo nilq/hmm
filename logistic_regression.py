@@ -1,6 +1,6 @@
 # %%
 from sklearn.linear_model import LogisticRegression
-from hmm import *
+from hmm.hmm import *
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -18,7 +18,7 @@ Gamma = np.array([
 
 def run_and_test(t = 1):
     # simulate
-    hmm = HMM2(Gamma, alpha, lambda Z: poisson_stimuli_sample_method(Z, rates))
+    hmm = HMM(Gamma, alpha, lambda Z: sample_poisson_stimuli(Z, rates))
     n = 10
 
     # We do multiclass logistic regression on processing_modes (C) given the activations (X)
