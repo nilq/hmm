@@ -16,9 +16,11 @@ def sample_poisson_stimuli(z_values: IntArray, rates: IntArray):
     sample_rates = [rates[z] for z in z_values]
     return np.random.poisson(sample_rates)
 
+
 def poisson_pmf(x: int, lambda_z: float) -> float:
     """Compute the Poisson probability mass function (PMF) for given observation x and rate parameter lambda_z."""
-    return np.exp(-lambda_z) * (lambda_z ** x) / factorial(x)
+    return np.exp(-lambda_z) * (lambda_z**x) / factorial(x)
+
 
 def compute_emission_probabilities(possible_x, possible_z, rates):
     """Compute emission probabilities P(X | Z).
@@ -36,9 +38,10 @@ def compute_emission_probabilities(possible_x, possible_z, rates):
     for i, x in enumerate(possible_x):
         for j, z in enumerate(possible_z):
             rate = rates[z]
-            emission_probs[i, j] = np.exp(-rate) * (rate ** x) / factorial(x)
+            emission_probs[i, j] = np.exp(-rate) * (rate**x) / factorial(x)
 
     return emission_probs
+
 
 class HMM:
     def __init__(
@@ -47,7 +50,7 @@ class HMM:
         alpha: list[float] | float,
         sample_stimuli: Callable[[IntArray], IntArray],
         states: list[int],
-        rates: list[int]
+        rates: list[int],
     ) -> None:
         """Initialise HMM.
 
@@ -150,7 +153,7 @@ class HMM:
         emission_probs = np.zeros(2)
         for z in range(2):
             rate = self.rates[z]
-            emission_probs[z] = sum((np.exp(-rate) * (rate ** x)) / factorial(x))
+            emission_probs[z] = sum((np.exp(-rate) * (rate**x)) / factorial(x))
 
         # Weighted probability based on the relationship between C and Z
         weighted_prob = p * emission_probs[1] + (1 - p) * emission_probs[0]
@@ -171,14 +174,19 @@ class HMM:
             else:
                 for j in range(num_states):
                     emission_prob = self.emission_probabilities(observations[t], j)
-                    forward_prob[t, j] = np.dot(forward_prob[t - 1], self.transition[:, j]) * emission_prob
+                    forward_prob[t, j] = (
+                        np.dot(forward_prob[t - 1], self.transition[:, j])
+                        * emission_prob
+                    )
 
             scaling_factors[t] = np.sum(forward_prob[t])
             forward_prob[t] /= scaling_factors[t]
 
         return forward_prob, scaling_factors
 
-    def backward_pass(self, observations: IntArray, scaling_factors: FloatArray) -> FloatArray:
+    def backward_pass(
+        self, observations: IntArray, scaling_factors: FloatArray
+    ) -> FloatArray:
         time_steps: int = len(observations)
         num_states: int = len(self.states)
         backward_prob = np.zeros([time_steps, num_states])
@@ -189,7 +197,9 @@ class HMM:
         for t in range(time_steps - 2, -1, -1):
             for i in range(num_states):
                 emission_prob = self.emission_probabilities(observations[t + 1], i)
-                backward_prob[t, i] = np.dot(self.transition[i], emission_prob * backward_prob[t + 1])
+                backward_prob[t, i] = np.dot(
+                    self.transition[i], emission_prob * backward_prob[t + 1]
+                )
             backward_prob[t] /= scaling_factors[t + 1]
 
         return backward_prob
@@ -204,9 +214,14 @@ class HMM:
         for t in range(time_steps - 1):
             for i in range(num_states):
                 for j in range(num_states):
-                    emission_prob = self.emission_probabilities(observations[t + 1], j) 
-                    joint_prob[t, i, j] = forward_prob[t, i] * self.transition[i, j] * emission_prob * backward_prob[t + 1, j]
-    
+                    emission_prob = self.emission_probabilities(observations[t + 1], j)
+                    joint_prob[t, i, j] = (
+                        forward_prob[t, i]
+                        * self.transition[i, j]
+                        * emission_prob
+                        * backward_prob[t + 1, j]
+                    )
+
         joint_prob /= np.sum(joint_prob, axis=(1, 2), keepdims=True)
 
         return joint_prob
