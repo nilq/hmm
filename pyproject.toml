@@ -14,6 +14,7 @@ black = "^23.1.0"
 isort = "^5.12.0"
 matplotlib = "^3.7.1"
 scikit-learn = "^1.2.2"
+seaborn = "^0.12.2"
 
 [tool.poetry.group.dev.dependencies]
 jsonschema = "^4.17.3"
