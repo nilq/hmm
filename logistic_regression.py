@@ -2,21 +2,18 @@
 from sklearn.linear_model import LogisticRegression
 from hmm.hmm import *
 import numpy as np
-import matplotlib.pyplot as plt
 
 gamma = 0.1
 beta = 0.2
 alpha = 0.01
 rates = [1, 20]
 
-Gamma = np.array([
-    [1 - gamma, 0, gamma],
-    [0, 1 - gamma, gamma],
-    [beta / 2, beta / 2, 1 - beta]
-])
+Gamma = np.array(
+    [[1 - gamma, 0, gamma], [0, 1 - gamma, gamma], [beta / 2, beta / 2, 1 - beta]]
+)
 
 
-def run_and_test(t = 1):
+def run_and_test(t=1):
     # simulate
     hmm = HMM(Gamma, alpha, lambda Z: sample_poisson_stimuli(Z, rates))
     n = 10
@@ -32,7 +29,6 @@ def run_and_test(t = 1):
     # We then see how well the model predicts the processing modes
     print(f"t = {t}, accuracy = {linear_model.score(sim_X, processing_modes)}")
 
+
 for t in [10, 50, 100, 200, 500, 1000]:
     run_and_test(t)
-
-
