@@ -5,49 +5,31 @@ import numpy.typing as npt
 
 from hmm.types import FloatArray, IntArray
 
-import math
 from itertools import product
 from typing import Callable
 
 from scipy.special import factorial
 
 
-def sample_poisson_stimuli(z_values: IntArray, rates: IntArray):
-    sample_rates = [rates[z] for z in z_values]
-    return np.random.poisson(sample_rates)
-
-
-def poisson_pmf(x: int, lambda_z: float) -> float:
-    """Compute the Poisson probability mass function (PMF) for given observation x and rate parameter lambda_z."""
-    return np.exp(-lambda_z) * (lambda_z**x) / factorial(x)
-
-
-def compute_emission_probabilities(possible_x, possible_z, rates):
-    """Compute emission probabilities P(X | Z).
+def sample_poisson_stimuli(z_values: IntArray, rates: IntArray) -> IntArray:
+    """Sample Poisson stimuli.
 
     Args:
-        possible_x (IntArray): All possible observations.
-        possible_z (IntArray): All possible hidden states.
-        rates (list[int]): Poisson distribution rates for each hidden state Z.
+        z_values (IntArray): List of Z-values.
+        rates (IntArray): Rate-lookup indexed by Z-values.
 
     Returns:
-        FloatArray: Emission probability matrix, shape (len(possible_x), len(possible_z)).
+        IntArray: Drawn samples from the parameterized Poisson distribution.
     """
-    emission_probs = np.zeros((len(possible_x), len(possible_z)))
-
-    for i, x in enumerate(possible_x):
-        for j, z in enumerate(possible_z):
-            rate = rates[z]
-            emission_probs[i, j] = np.exp(-rate) * (rate**x) / factorial(x)
-
-    return emission_probs
+    sample_rates = [rates[z] for z in z_values]
+    return np.random.poisson(sample_rates)
 
 
 class HMM:
     def __init__(
         self,
         transition: FloatArray,
-        alpha: list[float] | float,
+        alpha: float,
         sample_stimuli: Callable[[IntArray], IntArray],
         states: list[int],
         rates: list[int],
@@ -140,7 +122,22 @@ class HMM:
 
         return processing_modes, focus, activations
 
-    def emission_probabilities(self, x: int, current_c: int) -> float:
+    def emission_probabilities(self, observation: int, current_c: int) -> float:
+        """Compute probability of observing observation given current processing mode.
+
+        Notes:
+            This is the emission probability computed as follows:
+                P(X=x|C=c) = p⋅P(X=x|Z=1)+(1-p)⋅P(X=x|Z=0)
+
+        Args:
+            observation (int): _description_
+            current_c (int): _description_
+
+        Returns:
+            float: _description_
+        """
+
+        # Emission probabilities for C. Super hardcoded.
         match current_c:
             case 0:
                 p = 1 - self.alpha
@@ -153,12 +150,28 @@ class HMM:
         emission_probs = np.zeros(2)
         for z in range(2):
             rate = self.rates[z]
-            emission_probs[z] = sum((np.exp(-rate) * (rate**x)) / factorial(x))
+            emission_probs[z] = sum((np.exp(-rate) * (rate**observation)) / factorial(observation))
 
         # Weighted probability based on the relationship between C and Z
         return p * emission_probs[1] + (1 - p) * emission_probs[0]
 
     def forward_pass(self, observations: IntArray) -> tuple[FloatArray, FloatArray]:
+        """Forward pass of forward-backward algorithm.
+
+        Notes:
+            The forward pass computes the scaled forward probabilites
+                for each state at each time step.
+
+        Args:
+            observations (IntArray): Array of observations.
+
+        Returns:
+            tuple[FloatArray, FloatArray]: Forward probabilities and scaling factors.
+                - forward_prob: A 2D array containing the scaled
+                    forward probabilities for each state at each time step.
+                - scaling_factors: A 1D array containing the scaling factors used
+                    to normalize the forward probabilities at each time step.
+        """
         time_steps: int = len(observations)
         num_states: int = len(self.states)
 
@@ -166,61 +179,103 @@ class HMM:
         scaling_factors = np.zeros(time_steps)
 
         for t in range(time_steps):
-            if t == 0:
-                for i in range(num_states):
-                    emission_prob = self.emission_probabilities(observations[t], i)
+            for i in range(num_states):
+                # Emission probability of observation at time step t given mode i.
+                emission_prob = self.emission_probabilities(observations[t], i)
+
+                # If it's the first time step, we initialise the forward
+                # ... probabilities using the alpha value.
+                if t == 0:
                     forward_prob[t, i] = self.alpha * emission_prob
-            else:
-                for j in range(num_states):
-                    emission_prob = self.emission_probabilities(observations[t], j)
-                    forward_prob[t, j] = (
-                        np.dot(forward_prob[t - 1], self.transition[:, j])
+                else:
+                    # For all other steps, compute the forward probability.
+                    forward_prob[t, i] = (
+                        np.dot(forward_prob[t - 1], self.transition[:, i])
                         * emission_prob
                     )
 
+            # Scaling factor at t is the sum of the forward probabilities at t.
             scaling_factors[t] = np.sum(forward_prob[t])
+            # Normalise the forward probabilities at time step t.
             forward_prob[t] /= scaling_factors[t]
 
-        return forward_prob, scaling_factors
+        return forward_prob, scaling_factors  # Au revoir.
 
     def backward_pass(
         self, observations: IntArray, scaling_factors: FloatArray
     ) -> FloatArray:
+        """Backward pass of forward-backward algorithm.
+
+        Notes:
+            The backward pass computes the scaled backward probabilities
+                for each state at each time step.
+
+        Args:
+            observations (IntArray): Array of observations.
+            scaling_factors (FloatArray): Scaling factors from forward-pass.
+
+        Returns:
+            FloatArray: A 2D array containing the scaled backward probabilities
+                for each state at each time step.
+        """
         time_steps: int = len(observations)
         num_states: int = len(self.states)
+
         backward_prob = np.zeros([time_steps, num_states])
 
         # Base case.
         backward_prob[-1] = 1
 
+        # Moonwalk across observed time steps, starting form second-to-last.
         for t in range(time_steps - 2, -1, -1):
+            # For each processing mode (i.e. state) we calculate the backward
+            # ... probability of state i at time step t.
             for i in range(num_states):
+                # Emission probability of observation at time (t + 1)
+                # ... given processing mode i.
                 emission_prob = self.emission_probabilities(observations[t + 1], i)
                 backward_prob[t, i] = np.dot(
-                    self.transition[i], emission_prob * backward_prob[t + 1]
+                    self.transition[i],  # Transition probability from i to all states.
+                    emission_prob * backward_prob[t + 1]  # Element-wise product. :) 
                 )
+            
+            # Normalise backward probabilities.
             backward_prob[t] /= scaling_factors[t + 1]
 
-        return backward_prob
+        return backward_prob  # See you later. 
 
     def infer(self, observations: IntArray) -> FloatArray:
+        """Infer the joint probabilities of processing modes for observed time steps.
+
+        Args:
+            observations (IntArray): Array of observations.
+
+        Returns:
+            FloatArray: A 3D array containing the joint probabilities for each tuple
+                of states at consecutive time steps.
+        """
         forward_prob, scaling_factors = self.forward_pass(observations)
         backward_prob = self.backward_pass(observations, scaling_factors)
 
         time_steps, num_states = forward_prob.shape
         joint_prob = np.zeros((time_steps - 1, num_states, num_states))
 
+        # For each time step, we compute a the probabilities of transitioning
+        # from state i at time t, to state j at time $t + 1$.
         for t in range(time_steps - 1):
-            for i in range(num_states):
-                for j in range(num_states):
-                    emission_prob = self.emission_probabilities(observations[t + 1], j)
-                    joint_prob[t, i, j] = (
-                        forward_prob[t, i]
-                        * self.transition[i, j]
-                        * emission_prob
-                        * backward_prob[t + 1, j]
-                    )
+            # Iterate over all possible pairs of processing modes.
+            for i, j in product(range(num_states), range(num_states)):
+                # Calculate the emission probability of observing stimulus
+                # ... at (t + 1) given mode $j$.
+                emission_prob = self.emission_probabilities(observations[t + 1], j)
+                joint_prob[t, i, j] = (
+                    forward_prob[t, i]         # Forward probability of state i at time t.
+                    * self.transition[i, j]    # Transition probability from i to j.
+                    * emission_prob            # Guess what.
+                    * backward_prob[t + 1, j]  # Backward probability at j at (t + 1)
+                )
 
+        # Ensure row stochasticity. 
         joint_prob /= np.sum(joint_prob, axis=(1, 2), keepdims=True)
 
-        return joint_prob
+        return joint_prob  # Bye.
