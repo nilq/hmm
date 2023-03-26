@@ -156,8 +156,7 @@ class HMM:
             emission_probs[z] = sum((np.exp(-rate) * (rate**x)) / factorial(x))
 
         # Weighted probability based on the relationship between C and Z
-        weighted_prob = p * emission_probs[1] + (1 - p) * emission_probs[0]
-        return weighted_prob
+        return p * emission_probs[1] + (1 - p) * emission_probs[0]
 
     def forward_pass(self, observations: IntArray) -> tuple[FloatArray, FloatArray]:
         time_steps: int = len(observations)
