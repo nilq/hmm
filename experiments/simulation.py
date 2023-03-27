@@ -42,7 +42,7 @@ def forward_simulation(
     transition = transition(gamma, beta)
     # simulate
     hmm = HMM(
-        transition, alpha, lambda Z: sample_poisson_stimuli(Z, rates), states=[0, 1, 2]
+        transition, alpha, lambda Z: sample_poisson_stimuli(Z, rates), processing_modes=[0, 1, 2]
     )
 
     return hmm.forward(n, t)
