@@ -11,6 +11,7 @@ from typing import Callable
 from scipy.special import factorial
 from scipy.stats import poisson
 
+
 def sample_poisson_stimuli(z_values: IntArray, rates: IntArray) -> IntArray:
     """Sample Poisson stimuli.
 
@@ -96,7 +97,7 @@ class HMM:
         return self.transition[current_c][c_next]
 
     def forward(
-        self, num_nodes: int, time_steps=100, initial_c=2
+            self, num_nodes: int, time_steps=100, initial_c=2
     ) -> tuple[list[int], FloatArray, FloatArray]:
         """Run forward simulation with specified node amount and time steps.
 
@@ -203,8 +204,8 @@ class HMM:
                 else:
                     # For all other steps, compute the forward probability.
                     forward_prob[t, i] = (
-                        np.dot(forward_prob[t - 1], self.transition[:, i])
-                        * emission_prob
+                            np.dot(forward_prob[t - 1], self.transition[:, i])
+                            * emission_prob
                     )
 
             # Scaling factor at t is the sum of the forward probabilities at t.
@@ -215,7 +216,7 @@ class HMM:
         return forward_prob, scaling_factors  # Au revoir.
 
     def backward_pass(
-        self, observations: IntArray, scaling_factors: FloatArray
+            self, observations: IntArray, scaling_factors: FloatArray
     ) -> FloatArray:
         """Backward pass of forward-backward algorithm.
 
@@ -282,16 +283,96 @@ class HMM:
                 # ... at (t + 1) given mode $j$.
                 emission_prob = self.emission_probabilities(observations[t + 1], j)
                 joint_prob[t, i, j] = (
-                    forward_prob[t, i]         # Forward probability of state i at time t.
-                    * self.transition[i, j]    # Transition probability from i to j.
-                    * emission_prob            # Guess what.
-                    * backward_prob[t + 1, j]  # Backward probability at j at (t + 1)
+                        forward_prob[t, i]  # Forward probability of state i at time t.
+                        * self.transition[i, j]  # Transition probability from i to j.
+                        * emission_prob  # Guess what.
+                        * backward_prob[t + 1, j]  # Backward probability at j at (t + 1)
                 )
 
         # Ensure row stochasticity. 
         joint_prob /= np.sum(joint_prob, axis=(1, 2), keepdims=True)
 
         return joint_prob  # Bye.
+
+    def infer_C(self, time, observations):
+        time_steps: int = len(observations)
+        num_nodes: int = len(observations[0])
+
+        forward_pass = np.array([1, 1, 1])
+        for i in range(time):
+            message_from_clique_xz = []
+
+            for z_i in range(num_nodes):
+                message_from_clique_xz.append([poisson.pmf(observations[i][z_i], self.rates[0]),  # P(X|Z=0)
+                                               poisson.pmf(observations[i][z_i], self.rates[1])])  # P(X|Z=1)
+
+            # Here we sum P(X_i|Z_i)P(Z_i|C) over Z_i, then take the product the sums over i < num_states
+
+            message_from_clique_zc = []
+            for c in (0, 1, 2):
+                joint_x_given_c = 1
+                for pxz_i in message_from_clique_xz:
+                    # P(X|C) =P(X| Z = 0)P(Z = 0| C)+P(X| Z = 1)P(Z = 1| C)
+                    p_x_given_c = pxz_i[0] * self.p_z_given_c(0, c) + pxz_i[1] * self.p_z_given_c(1, c)
+                    joint_x_given_c *= p_x_given_c  # P(X1|C)P(X2|C)=P(X1,X2|C)
+                message_from_clique_zc.append(joint_x_given_c)
+
+            if i == 0:
+                # Sum over C1, which can only be 2,
+                # P(C1)P(X1, X2, ..| C1)P(C2 | C1) = P(C2, X1, X2, ..)
+                forward_pass = message_from_clique_zc[2] * self.transition[2]
+            else:
+                # Sum over C2
+                # P(X11,..., C)P(X21, X22, ..| C2)P(C3 | C2) = P(C3, X1, X2, ..)
+                forward_pass = [
+                    sum([forward_pass[i] * message_from_clique_zc[i] * self.p_c_given_c(c_, i) for i in (0, 1, 2)])
+                    for c_ in (0, 1, 2)]
+
+        #### BACKWARD PASS
+        backward_pass = np.array([1, 1, 1])
+        for i in range(time_steps - 1, time, -1):
+            message_from_clique_xz = []
+
+            for z_i in range(num_nodes):
+                message_from_clique_xz.append([poisson.pmf(observations[i][z_i], self.rates[0]),  # P(X|Z=0)
+                                               poisson.pmf(observations[i][z_i], self.rates[1])])  # P(X|Z=1)
+
+            message_from_clique_zc = []
+            for c in (0, 1, 2):
+                joint_x_given_c = 1
+                for pxz_i in message_from_clique_xz:
+                    # P(X|C) =P(X| Z = 0)P(Z = 0| C)+P(X| Z = 1)P(Z = 1| C)
+                    p_x_given_c = pxz_i[0] * self.p_z_given_c(0, c) + pxz_i[1] * self.p_z_given_c(1, c)
+                    joint_x_given_c *= p_x_given_c  # P(X1|C)P(X2|C)=P(X1,X2|C)
+                message_from_clique_zc.append(joint_x_given_c)  # P(X1,X2|C = 0,1,2)
+
+            backward_pass = [
+                # Sum over C_prev for P(C|C_prev)P(X1,X2,...|C_prev)
+                sum([backward_pass[i] * self.p_c_given_c(c_, i) for i in (0, 1, 2)]) * message_from_clique_zc[c_]
+                for c_ in (0, 1, 2)]
+
+        # P(X_{1,1},...,X_{t-1,n}, C_t) P(X_{} C_t)
+
+        ### At time t
+        message_from_clique_xz = []
+
+        for z_i in range(num_nodes):
+            message_from_clique_xz.append([poisson.pmf(observations[time][z_i], self.rates[0]),  # P(X|Z=0)
+                                           poisson.pmf(observations[time][z_i], self.rates[1])])  # P(X|Z=1)
+
+        # Here we sum P(X_i|Z_i)P(Z_i|C) over Z_i, then take the product the sums over i < num_states
+        message_from_clique_zc = []
+        for c in (0, 1, 2):
+            joint_x_given_c = 1
+            for pxz_i in message_from_clique_xz:
+                # P(X|C) =P(X| Z = 0)P(Z = 0| C)+P(X| Z = 1)P(Z = 1| C)
+                p_x_given_c = pxz_i[0] * self.p_z_given_c(0, c) + pxz_i[1] * self.p_z_given_c(1, c)
+                joint_x_given_c *= p_x_given_c  # P(X1|C)P(X2|C)=P(X1,X2|C)
+            message_from_clique_zc.append(joint_x_given_c)
+
+        joint_with_evidence = np.array(forward_pass) * np.array(backward_pass) * np.array(message_from_clique_zc)
+        marginal = joint_with_evidence / np.sum(joint_with_evidence)
+        return marginal
 
     def infer_Z(self, time, index, observations):
         time_steps: int = len(observations)
@@ -327,15 +408,62 @@ class HMM:
                     sum([forward_pass[i] * message_from_clique_zc[i] * self.p_c_given_c(c_, i) for i in (0, 1, 2)])
                     for c_ in (0, 1, 2)]
 
-        for i in range(time_steps-1, time, -1):
-            pass
-        return forward_pass
+        #### BACKWARD PASS
+        backward_pass = np.array([1, 1, 1])
+        for i in range(time_steps - 1, time, -1):
+            message_from_clique_xz = []
+
+            for z_i in range(num_nodes):
+                message_from_clique_xz.append([poisson.pmf(observations[i][z_i], self.rates[0]),  # P(X|Z=0)
+                                               poisson.pmf(observations[i][z_i], self.rates[1])])  # P(X|Z=1)
+
+            message_from_clique_zc = []
+            for c in (0, 1, 2):
+                joint_x_given_c = 1
+                for pxz_i in message_from_clique_xz:
+                    # P(X|C) =P(X| Z = 0)P(Z = 0| C)+P(X| Z = 1)P(Z = 1| C)
+                    p_x_given_c = pxz_i[0] * self.p_z_given_c(0, c) + pxz_i[1] * self.p_z_given_c(1, c)
+                    joint_x_given_c *= p_x_given_c  # P(X1|C)P(X2|C)=P(X1,X2|C)
+                message_from_clique_zc.append(joint_x_given_c)  # P(X1,X2|C = 0,1,2)
+
+            backward_pass = [
+                # Sum over C_prev for P(C|C_prev)P(X1,X2,...|C_prev)
+                sum([backward_pass[i] * self.p_c_given_c(c_, i) for i in (0, 1, 2)]) * message_from_clique_zc[c_]
+                for c_ in (0, 1, 2)]
+
+        # P(X_{1,1},...,X_{t-1,n}, C_t) P(X_{} C_t)
+
+        ### At time t
+        message_from_clique_xz = []
+
+        for z_i in range(num_nodes):
+            message_from_clique_xz.append([poisson.pmf(observations[time][z_i], self.rates[0]),  # P(X|Z=0)
+                                           poisson.pmf(observations[time][z_i], self.rates[1])])  # P(X|Z=1)
+
+        # Here we sum P(X_i|Z_i)P(Z_i|C) over Z_i, then take the product the sums over i < num_states
+        message_from_clique_zc = []
+        for c in (0, 1, 2):
+            joint_x_given_c = 1
+            for pxz_i in message_from_clique_xz[:index] + message_from_clique_xz[index:]:
+                # calculates P(X|C) =P(X| Z = 0)P(Z = 0| C)+P(X| Z = 1)P(Z = 1| C)
+                p_x_given_c = pxz_i[0] * self.p_z_given_c(0, c) + pxz_i[1] * self.p_z_given_c(1, c)
+                joint_x_given_c *= p_x_given_c  # P(X1|C)P(X2|C)=P(X1,X2|C) all except X_index
+            message_from_clique_zc.append(joint_x_given_c)
+
+        # P(Ct, X_all_except_index)= P(Ct, X_before_t)P(X_after_t|Ct)P(X_under_Ct|Ct)
+        joint_with_evidence = np.array(forward_pass) * np.array(backward_pass) * np.array(message_from_clique_zc)
+
+        z_given_x = [poisson.pmf(observations[time][index], self.rates[z]) *
+                     sum([joint_with_evidence[c] * self.p_z_given_c(z, c) for c in (0, 1, 2)]) for z in
+                     (0, 1)]
+        marginal = z_given_x / np.sum(z_given_x)
+        return marginal
 
     def learned_parameters(
-        self,
-        c_values: IntArray,
-        z_values: IntArray,
-        x_values: IntArray
+            self,
+            c_values: IntArray,
+            z_values: IntArray,
+            x_values: IntArray
     ) -> tuple[float, float, float, float, float]:
         """Learn parameters from observed C, Z and X values.
 
