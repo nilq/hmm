@@ -27,12 +27,12 @@ def sample_poisson_stimuli(z_values: IntArray, rates: IntArray) -> IntArray:
 
 class HMM:
     def __init__(
-        self,
-        transition: FloatArray,
-        alpha: float,
-        sample_stimuli: Callable[[IntArray], IntArray],
-        states: list[int],
-        rates: list[int],
+            self,
+            transition: FloatArray,
+            alpha: float,
+            sample_stimuli: Callable[[IntArray], IntArray],
+            states: list[int],
+            rates: list[int],
     ) -> None:
         """Initialise HMM.
 
@@ -81,6 +81,19 @@ class HMM:
                 p = 0.5
 
         return np.random.binomial(n=1, p=p, size=size)
+
+    def p_z_given_c(self, z, c):
+        match c:
+            case 0:
+                p = 1 - self.alpha
+            case 1:
+                p = self.alpha
+            case 2:
+                p = 0.5
+        return p if z else 1 - p
+
+    def p_c_given_c(self, c_next, current_c):
+        return self.transition[current_c][c_next]
 
     def forward(
         self, num_nodes: int, time_steps=100, initial_c=2
@@ -150,7 +163,7 @@ class HMM:
         emission_probs = np.zeros(2)
         for z in range(2):
             rate = self.rates[z]
-            emission_probs[z] = sum((np.exp(-rate) * (rate**observation)) / factorial(observation))
+            emission_probs[z] = sum((np.exp(-rate) * (rate ** observation)) / factorial(observation))
 
         # Weighted probability based on the relationship between C and Z
         return p * emission_probs[1] + (1 - p) * emission_probs[0]
@@ -238,7 +251,7 @@ class HMM:
                     self.transition[i],  # Transition probability from i to all states.
                     emission_prob * backward_prob[t + 1]  # Element-wise product. :) 
                 )
-            
+
             # Normalise backward probabilities.
             backward_prob[t] /= scaling_factors[t + 1]
 
@@ -280,69 +293,108 @@ class HMM:
 
         return joint_prob  # Bye.
 
-def learned_parameters(
-    c_values: IntArray,
-    z_values: IntArray,
-    x_values: IntArray
-) -> tuple[float, float, float, float, float]:
-    """Learn parameters from observed C, Z and X values.
+    def infer_Z(self, time, index, observations):
+        time_steps: int = len(observations)
+        num_nodes: int = len(observations[0])
 
-    Args:
-        c_values (IntArray): Observed processing modes.
-        z_values (IntArray): Observed focus.
-        x_values (IntArray): Observed stimuli.
+        forward_pass = np.array([1, 1, 1])
+        for i in range(time):
+            message_from_clique_xz = []
 
-    Returns:
-        tuple[float, float, float, float, float]:
-            Tuple containing learned parameters:
-                - lambda_0_hat
-                - lambda_1_hat
-                - alpha_hat
-                - beta_hat
-                - gamma_hat
-    """
-    time_steps: int = len(c_values)
+            for z_i in range(num_nodes):
+                message_from_clique_xz.append([poisson.pmf(observations[i][z_i], self.rates[0]),  # P(X|Z=0)
+                                               poisson.pmf(observations[i][z_i], self.rates[1])])  # P(X|Z=1)
 
-    # We are interested in these when computing lambda-hat values.
-    z_0_mask = z_values == 0  # Indices where Z_{t,i} = 0
-    z_1_mask = z_values == 1  # ...
+            # Here we sum P(X_i|Z_i)P(Z_i|C) over Z_i, then take the product the sums over i < num_states
 
-    # Compute the lambdas as the average stimulis for respective Z-values.
-    lambda_0_hat: float = x_values[z_0_mask].sum() / z_0_mask.sum()
-    lambda_1_hat: float = x_values[z_1_mask].sum() / z_1_mask.sum()
+            message_from_clique_zc = []
+            for c in (0, 1, 2):
+                joint_x_given_c = 1
+                for pxz_i in message_from_clique_xz:
+                    # P(X|C) =P(X| Z = 0)P(Z = 0| C)+P(X| Z = 1)P(Z = 1| C)
+                    p_x_given_c = pxz_i[0] * self.p_z_given_c(0, c) + pxz_i[1] * self.p_z_given_c(1, c)
+                    joint_x_given_c *= p_x_given_c  # P(X1|C)P(X2|C)=P(X1,X2|C)
+                message_from_clique_zc.append(joint_x_given_c)
 
-    # NumPy trick to get sum of (Z_{t,i} = C_t = 0 or 1)
-    alpha_mask = ((z_values == c_values[:, None]).any(axis=1) & (c_values <= 1)).sum()
-    
-    alpha_count: int = alpha_mask.sum()
-    alpha_hat: float = alpha_count / c_values.size
+            if i == 0:
+                # Sum over C1, which can only be 2,
+                # P(C1)P(X1, X2, ..| C1)P(C2 | C1) = P(C2, X1, X2, ..)
+                forward_pass = message_from_clique_zc[2] * self.transition[2]
+            else:
+                # Sum over C2
+                # P(X11,..., C)P(X21, X22, ..| C2)P(C3 | C2) = P(C3, X1, X2, ..)
+                forward_pass = [
+                    sum([forward_pass[i] * message_from_clique_zc[i] * self.p_c_given_c(c_, i) for i in (0, 1, 2)])
+                    for c_ in (0, 1, 2)]
 
-    # Used to count cases of beta and gamma transition cases.
-    beta_count: int = 0
-    gamma_count: int = 0
+        for i in range(time_steps-1, time, -1):
+            pass
+        return forward_pass
 
-    # Trivial variable.
-    total_transitions: int = time_steps - 1        
+    def learned_parameters(
+        self,
+        c_values: IntArray,
+        z_values: IntArray,
+        x_values: IntArray
+    ) -> tuple[float, float, float, float, float]:
+        """Learn parameters from observed C, Z and X values.
 
-    # Count cases of transitions.
-    for t in range(total_transitions):
-        # This is so nice.
-        match (c_values[t], c_values[t + 1]):
-            case (2, 0) | (2, 1):  # From 2 -> {0,1}
-                beta_count += 1
-            case (0, 2) | (1, 2):  # From {0,1} -> 2
-                gamma_count += 1
+        Args:
+            c_values (IntArray): Observed processing modes.
+            z_values (IntArray): Observed focus.
+            x_values (IntArray): Observed stimuli.
 
-    beta_hat: float = beta_count / total_transitions
-    gamma_hat: float = gamma_count / total_transitions
-    
-    return (
-        lambda_0_hat,
-        lambda_1_hat,
-        alpha_hat,
-        beta_hat,
-        gamma_hat
-    )
+        Returns:
+            tuple[float, float, float, float, float]:
+                Tuple containing learned parameters:
+                    - lambda_0_hat
+                    - lambda_1_hat
+                    - alpha_hat
+                    - beta_hat
+                    - gamma_hat
+        """
+        time_steps: int = len(c_values)
+
+        # We are interested in these when computing lambda-hat values.
+        z_0_mask = z_values == 0  # Indices where Z_{t,i} = 0
+        z_1_mask = z_values == 1  # ...
+
+        # Compute the lambdas as the average stimulis for respective Z-values.
+        lambda_0_hat: float = x_values[z_0_mask].sum() / z_0_mask.sum()
+        lambda_1_hat: float = x_values[z_1_mask].sum() / z_1_mask.sum()
+
+        # NumPy trick to get sum of (Z_{t,i} = C_t = 0 or 1)
+        alpha_mask = ((z_values == c_values[:, None]).any(axis=1) & (c_values <= 1)).sum()
+
+        alpha_count: int = alpha_mask.sum()
+        alpha_hat: float = alpha_count / c_values.size
+
+        # Used to count cases of beta and gamma transition cases.
+        beta_count: int = 0
+        gamma_count: int = 0
+
+        # Trivial variable.
+        total_transitions: int = time_steps - 1
+
+        # Count cases of transitions.
+        for t in range(total_transitions):
+            # This is so nice.
+            match (c_values[t], c_values[t + 1]):
+                case (2, 0) | (2, 1):  # From 2 -> {0,1}
+                    beta_count += 1
+                case (0, 2) | (1, 2):  # From {0,1} -> 2
+                    gamma_count += 1
+
+        beta_hat: float = beta_count / total_transitions
+        gamma_hat: float = gamma_count / total_transitions
+
+        return (
+            lambda_0_hat,
+            lambda_1_hat,
+            alpha_hat,
+            beta_hat,
+            gamma_hat
+        )
 
 
 def expectation_maximisation_hard_assignment(joint_prob: FloatArray, num_nodes: int) -> tuple[IntArray, IntArray]:
