@@ -9,7 +9,7 @@ from itertools import product
 from typing import Callable
 
 from scipy.special import factorial
-
+from scipy.stats import poisson
 
 def sample_poisson_stimuli(z_values: IntArray, rates: IntArray) -> IntArray:
     """Sample Poisson stimuli.
