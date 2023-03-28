@@ -1,6 +1,6 @@
 import numpy as np
 
-from hmm.hmm import HMM, sample_poisson_stimuli
+from hmm.hmm import HMM
 
 gamma = 0.5
 beta = 0.8
@@ -15,7 +15,6 @@ transition_matrix = np.array(
 hmm = HMM(
     transition_matrix,
     alpha,
-    lambda z: sample_poisson_stimuli(z, rates),
     rates=rates,
     processing_modes=[0, 1, 2],
 )
@@ -29,11 +28,11 @@ print(c, z, x)
 
 # Infer C for every time step
 for i in range(t):
-    marginal = hmm.infer_C(i, x)
+    marginal = hmm.infer_marginal_c(x, i)
     print("C Guess vs actual:", np.argmax(marginal), c[i])
 
-
+print()
 # Infer first Z in every timestep
 for i in range(t):
-    marginal = hmm.infer_Z(i, 1, x)
+    marginal = hmm.infer_marginal_z(x, i, 1)
     print("Z Guess vs actual:", np.argmax(marginal), z[i][1])
