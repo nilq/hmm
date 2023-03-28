@@ -33,6 +33,16 @@ class HMM:
         self.processing_modes = processing_modes
         self.rates = rates
 
+        self.p_z_given_c_mat = np.array([
+            [1 - self.alpha, self.alpha, 0.5],
+            [self.alpha, 1 - self.alpha, 0.5]
+        ])
+
+        # Used for belief calibration
+        self.mu_cz = None
+        self.mu_cc = None
+        self.beta_c = None
+
     def sample_poisson_stimuli(self, z_values: IntArray) -> IntArray:
         """Sample Poisson stimuli.
 
@@ -102,7 +112,7 @@ class HMM:
         return self.transition[current_c][c_next]
 
     def forward(
-        self, num_nodes: int, time_steps=100, initial_c=2, seed=1
+            self, num_nodes: int, time_steps=100, initial_c=2, seed=1
     ) -> tuple[list[int], FloatArray, FloatArray]:
         """Run forward simulation with specified node amount and time steps.
 
@@ -143,7 +153,7 @@ class HMM:
         return processing_modes, focus, activations
 
     def compute_messages_from_x_and_z(
-        self, t: int, num_nodes: int, observations: IntArray
+            self, t: int, num_nodes: int, observations: IntArray
     ):
         """Compute clique message of clique X-Z at timestep t.
 
@@ -169,7 +179,7 @@ class HMM:
         return messages_from_x_and_z
 
     def compute_messages_from_z_and_c(
-        self, messages_from_x_and_z, z_index: int | None = None
+            self, messages_from_x_and_z, z_index: int | None = None
     ):
         messages_from_z_and_c = []
 
@@ -181,7 +191,7 @@ class HMM:
                 all_messages = messages_from_x_and_z
             else:
                 all_messages = (
-                    messages_from_x_and_z[:z_index] + messages_from_x_and_z[z_index:]
+                        messages_from_x_and_z[:z_index] + messages_from_x_and_z[z_index:]
                 )
 
             for message in all_messages:
@@ -197,7 +207,7 @@ class HMM:
         return np.array(messages_from_z_and_c)
 
     def clique_tree_forward(
-        self, observations: IntArray, timestep: int, initial_c: int = 2
+            self, observations: IntArray, timestep: int, initial_c: int = 2
     ) -> FloatArray:
         """_summary_
 
@@ -218,7 +228,7 @@ class HMM:
 
             if t == 0:
                 forward_prob = (
-                    messages_from_z_and_c[initial_c] * self.transition[initial_c]
+                        messages_from_z_and_c[initial_c] * self.transition[initial_c]
                 )
             else:
                 forward_prob = np.einsum(
@@ -229,6 +239,65 @@ class HMM:
                 )
 
         return forward_prob
+
+    def messages_from_clique_zc_to_cc(self, observations):
+        # P(X|Z)
+        p_x_given_z = np.array([
+            poisson.pmf(observations, self.rates[0]),
+            poisson.pmf(observations, self.rates[1]),
+        ])
+
+        self.mu_cz = p_x_given_c = (
+            np.einsum('ijk, il -> ljk',
+                      p_x_given_z,
+                      self.p_z_given_c_mat
+                      )
+        )
+        # Above is equivalent to
+        # np.array([p_x_given_z[0] * self.p_z_given_c_mat[0, c] + p_x_given_z[1] * self.p_z_given_c_mat[1, c] for c in [0, 1, 2]])
+        return p_x_given_c
+
+    def belief_propagation(self, observations, initial_c: int = 2):
+        T = len(observations)
+        num_processing_modes = len(self.processing_modes)
+
+        # Pass up from zc to cc
+        self.messages_from_clique_zc_to_cc(observations)
+        mu_cc = []
+        beta_cs = np.zeros((T, num_processing_modes))
+
+        # Forward pass
+        forward_prob = np.ones(num_processing_modes)
+        for t in range(T-1):
+            if t == 0:
+                # P(X1|C1=2)P(X2|C1=2)...P(Xn|C1=2) P(C2|C1=2)P(C1=2)
+                # P(X1,...,Xn,C2)
+                # Yields P(C2, x1,...,xn)
+                forward_prob = (
+                    np.prod(self.mu_cz[initial_c, t, :]) * self.transition[initial_c]  # * 1, which is P(C1=2)
+                )
+            else:
+                # We take the product with np.prod
+                # forward_prob is
+                # The following computes Sum_C P(C_next | C)*P(X, C) = P(X, C_next)
+                forward_prob = np.dot(
+                    self.transition.T,
+                    # P(X_prev, C) *  P(X1|C)P(X2|C)...P(Xn|C) = P(X, C)
+                    forward_prob * np.prod(self.mu_cz[:, t, :], axis=1)
+                )
+            # P(C_next| X) = P(C_next,X)/Sum_C P(C_next,X)
+            forward_prob = forward_prob/sum(forward_prob)
+            mu_cc.append(forward_prob)
+        self.mu_cc = mu_cc
+        # We are now at the T'th node, this node is fully informed
+        beta_cs[-1] = forward_prob * np.prod(self.mu_cz[:, -1, :], axis=1)
+        beta_cs[-1] = beta_cs[-1]/sum(beta_cs[-1])
+        # We proceed to do downward pass
+        for t in range(T-1, -1, -1):
+            self.mu_cc[t]
+
+        # Should return list inferred of C probabilities and Z probabilities
+        return
 
     def clique_tree_backward(self, observations: IntArray, timestep: int) -> FloatArray:
         """_summary_
@@ -262,7 +331,7 @@ class HMM:
         return backward_prob
 
     def clique_tree_forward_backward(
-        self, observations: IntArray, timestep: int, initial_c: int = 2
+            self, observations: IntArray, timestep: int, initial_c: int = 2
     ):
         """Compute forward and backward probabilities at given timestep.
 
@@ -280,7 +349,7 @@ class HMM:
         )
 
     def infer_marginal_c(
-        self, observations: IntArray, time_of_c: int, initial_c: int = 2
+            self, observations: IntArray, time_of_c: int, initial_c: int = 2
     ) -> FloatArray:
         """_summary_
 
@@ -300,12 +369,12 @@ class HMM:
         )
 
         # P(X_{1,1},...,X_{t-1,n}, C_t) P(X_{} C_t)
-        joint_with_evidence = forward_prob * backward_prob*messages_from_z_and_c
+        joint_with_evidence = forward_prob * backward_prob * messages_from_z_and_c
 
         return joint_with_evidence / np.sum(joint_with_evidence)
 
     def infer_marginal_z(
-        self, observations: IntArray, timestep: int, z_index: int, initial_c: int = 2
+            self, observations: IntArray, timestep: int, z_index: int, initial_c: int = 2
     ):
         time_steps, num_nodes = observations.shape
 
@@ -331,7 +400,7 @@ class HMM:
         return z_given_x / np.sum(z_given_x)
 
     def learned_parameters(
-        self, c_values: IntArray, z_values: IntArray, x_values: IntArray
+            self, c_values: IntArray, z_values: IntArray, x_values: IntArray
     ) -> tuple[float, float, float, float, float]:
         """Learn parameters from observed C, Z and X values.
 
@@ -361,7 +430,7 @@ class HMM:
 
         # NumPy trick to get sum of (Z_{t,i} = C_t = 0 or 1)
         alpha_mask = (
-            (z_values == c_values[:, None]).any(axis=1) & (c_values <= 1)
+                (z_values == c_values[:, None]).any(axis=1) & (c_values <= 1)
         ).sum()
 
         alpha_count: int = alpha_mask.sum()
@@ -390,7 +459,7 @@ class HMM:
 
 
 def expectation_maximisation_hard_assignment(
-    joint_prob: FloatArray, num_nodes: int
+        joint_prob: FloatArray, num_nodes: int
 ) -> tuple[IntArray, IntArray]:
     """Compute Z and C hard-assignments.
 
