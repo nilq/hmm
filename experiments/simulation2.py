@@ -22,17 +22,18 @@ hmm = HMM(
 n = 5
 t = 10
 
-c, z, x = hmm.forward(n, t)
+c, z, x = hmm.forward(n, t, seed=2)
 print(c, z, x)
 
+hmm.belief_propagation(x)
 
-# Infer C for every time step
-for i in range(t):
-    marginal = hmm.infer_marginal_c(x, i)
-    print("C Guess vs actual:", np.argmax(marginal), c[i])
-
-print()
-# Infer first Z in every timestep
-for i in range(t):
-    marginal = hmm.infer_marginal_z(x, i, 1)
-    print("Z Guess vs actual:", np.argmax(marginal), z[i][1])
+# # Infer C for every time step
+# for i in range(t):
+#     marginal = hmm.infer_marginal_c(x, i)
+#     print("C Guess vs actual:", np.argmax(marginal), c[i])
+#
+# print()
+# # Infer first Z in every timestep
+# for i in range(t):
+#     marginal = hmm.infer_marginal_z(x, i, 1)
+#     print("Z Guess vs actual:", np.argmax(marginal), z[i][1])
