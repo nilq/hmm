@@ -268,33 +268,43 @@ class HMM:
 
         # Forward pass
         forward_prob = np.ones(num_processing_modes)
-        for t in range(T-1):
+        for t in range(T-2):
             if t == 0:
                 # P(X1|C1=2)P(X2|C1=2)...P(Xn|C1=2) P(C2|C1=2)P(C1=2)
-                # P(X1,...,Xn,C2)
                 # Yields P(C2, x1,...,xn)
                 forward_prob = (
                     np.prod(self.mu_cz[initial_c, t, :]) * self.transition[initial_c]  # * 1, which is P(C1=2)
                 )
             else:
+                # P(C | X_prev)P(X1|C)P(X2|C)...P(Xn|C) = P(C|X_prev)P(X| C)=P(X,C|X_prev)
+                beta_cs[t] = forward_prob * np.prod(self.mu_cz[:, t, :], axis=1)
                 # We take the product with np.prod
                 # forward_prob is
-                # The following computes Sum_C P(C_next | C)*P(X, C) = P(X, C_next)
+                # The following computes
+                # P(C_next, X|X_prev) = Sum_C P(C_next| C)*P(X,C|X_prev)
+                # (by cond indep) = Sum_C P(C_next|X,C)*P(X,C|X_prev)
+                # = Sum_C P(C_next, X, C|X_prev)
                 forward_prob = np.dot(
                     self.transition.T,
-                    # P(X_prev, C) *  P(X1|C)P(X2|C)...P(Xn|C) = P(X, C)
-                    forward_prob * np.prod(self.mu_cz[:, t, :], axis=1)
+                    beta_cs[t]
                 )
-            # P(C_next| X) = P(C_next,X)/Sum_C P(C_next,X)
+                # Get P(C|X)
+                beta_cs[t] /= sum(beta_cs[t])
+            # P(C_next| X_till_now) = P(C_next, X|X_prev)/Sum_C P(C_next, X|X_prev)
             forward_prob = forward_prob/sum(forward_prob)
             mu_cc.append(forward_prob)
         self.mu_cc = mu_cc
         # We are now at the T'th node, this node is fully informed
-        beta_cs[-1] = forward_prob * np.prod(self.mu_cz[:, -1, :], axis=1)
+        # P(X_T,C_T|X_prev) = P(C_T|X_prev) P(X_T|C_T)
+        beta_cs[-1] = sigma = forward_prob * np.prod(self.mu_cz[:, -1, :], axis=1)
+        # P(C_T|X_all)
         beta_cs[-1] = beta_cs[-1]/sum(beta_cs[-1])
         # We proceed to do downward pass
-        for t in range(T-1, -1, -1):
-            self.mu_cc[t]
+        downward_prob = np.ones(num_processing_modes)
+        for t in range(T-2, -1, -1):
+            # Sum_C_T P(C_T|C_T-1)P(X_T|C_T) = P(X_T|C_T-1)
+            a = np.dot(self.transition, sigma/self.mu_cc[t])
+            downward_prob = a*beta_cs[t]
 
         # Should return list inferred of C probabilities and Z probabilities
         return
