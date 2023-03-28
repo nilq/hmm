@@ -1,4 +1,4 @@
-from hmm.hmm import HMM, sample_poisson_stimuli
+from hmm.hmm import HMM
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -20,7 +20,7 @@ def forward_simulation(
     t: int,
     gamma: float = 0.1,
     beta: float = 0.2,
-    alpha: float = 0.01,
+    alpha: float = 0.9,
     rates: list[int] = DEFAULT_RATES,
     transition: Callable[[float, float], FloatArray] = default_transition,
 ) -> tuple[list[int], FloatArray, FloatArray]:
@@ -42,7 +42,7 @@ def forward_simulation(
     transition = transition(gamma, beta)
     # simulate
     hmm = HMM(
-        transition, alpha, lambda Z: sample_poisson_stimuli(Z, rates), processing_modes=[0, 1, 2]
+        transition, alpha, rates=rates, processing_modes=[0, 1, 2]
     )
 
     return hmm.forward(n, t)
