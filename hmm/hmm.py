@@ -255,21 +255,13 @@ class HMM:
 
         # Forward pass
         forward_prob = np.ones(num_processing_modes)
-<<<<<<< HEAD
-        for t in range(T - 2):
-=======
         for t in range(T - 1):
->>>>>>> 0d9ffd8 (Better Cs)
             if t == 0:
                 # P(X1|C1=2)P(X2|C1=2)...P(Xn|C1=2) P(C2|C1=2)P(C1=2)
                 # Yields P(C2, x1,...,xn)
                 forward_prob = (
-<<<<<<< HEAD
-                        np.prod(self.mu_cz[initial_c, t, :]) * self.transition[initial_c]  # * 1, which is P(C1=2)
-=======
                     np.prod(mu_cz[initial_c, t, :])
                     * self.transition[initial_c]  # * 1, which is P(C1=2)
->>>>>>> 0d9ffd8 (Better Cs)
                 )
             else:
                 # P(C | X_prev)P(X1|C)P(X2|C)...P(Xn|C) = P(C|X_prev)P(X| C)=P(X,C|X_prev)
