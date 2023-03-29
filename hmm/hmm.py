@@ -5,20 +5,16 @@ import numpy.typing as npt
 
 from hmm.types import FloatArray, IntArray
 
-from itertools import product
-from typing import Callable
-
-from scipy.special import factorial
 from scipy.stats import poisson
 
 
 class HMM:
     def __init__(
-        self,
-        transition: FloatArray,
-        alpha: float,
-        processing_modes: list[int],
-        rates: list[int],
+            self,
+            transition: FloatArray,
+            alpha: float,
+            processing_modes: list[int],
+            rates: list[int],
     ) -> None:
         """Initialise HMM.
 
@@ -268,12 +264,12 @@ class HMM:
 
         # Forward pass
         forward_prob = np.ones(num_processing_modes)
-        for t in range(T-2):
+        for t in range(T - 2):
             if t == 0:
                 # P(X1|C1=2)P(X2|C1=2)...P(Xn|C1=2) P(C2|C1=2)P(C1=2)
                 # Yields P(C2, x1,...,xn)
                 forward_prob = (
-                    np.prod(self.mu_cz[initial_c, t, :]) * self.transition[initial_c]  # * 1, which is P(C1=2)
+                        np.prod(self.mu_cz[initial_c, t, :]) * self.transition[initial_c]  # * 1, which is P(C1=2)
                 )
             else:
                 # P(C | X_prev)P(X1|C)P(X2|C)...P(Xn|C) = P(C|X_prev)P(X| C)=P(X,C|X_prev)
@@ -291,20 +287,20 @@ class HMM:
                 # Get P(C|X)
                 beta_cs[t] /= sum(beta_cs[t])
             # P(C_next| X_till_now) = P(C_next, X|X_prev)/Sum_C P(C_next, X|X_prev)
-            forward_prob = forward_prob/sum(forward_prob)
+            forward_prob = forward_prob / sum(forward_prob)
             mu_cc.append(forward_prob)
         self.mu_cc = mu_cc
         # We are now at the T'th node, this node is fully informed
         # P(X_T,C_T|X_prev) = P(C_T|X_prev) P(X_T|C_T)
         beta_cs[-1] = sigma = forward_prob * np.prod(self.mu_cz[:, -1, :], axis=1)
         # P(C_T|X_all)
-        beta_cs[-1] = beta_cs[-1]/sum(beta_cs[-1])
+        beta_cs[-1] = beta_cs[-1] / sum(beta_cs[-1])
         # We proceed to do downward pass
         downward_prob = np.ones(num_processing_modes)
-        for t in range(T-2, -1, -1):
+        for t in range(T - 2, -1, -1):
             # Sum_C_T P(C_T|C_T-1)P(X_T|C_T) = P(X_T|C_T-1)
-            a = np.dot(self.transition, sigma/self.mu_cc[t])
-            downward_prob = a*beta_cs[t]
+            a = np.dot(self.transition, sigma / self.mu_cc[t])
+            downward_prob = a * beta_cs[t]
 
         # Should return list inferred of C probabilities and Z probabilities
         return
@@ -408,98 +404,3 @@ class HMM:
         z_given_x = poisson_probs * np.einsum("ij,j->i", z_given_c, joint_with_evidence)
 
         return z_given_x / np.sum(z_given_x)
-
-    def learned_parameters(
-            self, c_values: IntArray, z_values: IntArray, x_values: IntArray
-    ) -> tuple[float, float, float, float, float]:
-        """Learn parameters from observed C, Z and X values.
-
-        Args:
-            c_values (IntArray): Observed processing modes.
-            z_values (IntArray): Observed focus.
-            x_values (IntArray): Observed stimuli.
-
-        Returns:
-            tuple[float, float, float, float, float]:
-                Tuple containing learned parameters:
-                    - lambda_0_hat
-                    - lambda_1_hat
-                    - alpha_hat
-                    - beta_hat
-                    - gamma_hat
-        """
-        time_steps: int = len(c_values)
-
-        # We are interested in these when computing lambda-hat values.
-        z_0_mask = z_values == 0  # Indices where Z_{t,i} = 0
-        z_1_mask = z_values == 1  # ...
-
-        # Compute the lambdas as the average stimulis for respective Z-values.
-        lambda_0_hat: float = x_values[z_0_mask].sum() / z_0_mask.sum()
-        lambda_1_hat: float = x_values[z_1_mask].sum() / z_1_mask.sum()
-
-        # NumPy trick to get sum of (Z_{t,i} = C_t = 0 or 1)
-        alpha_mask = (
-                (z_values == c_values[:, None]).any(axis=1) & (c_values <= 1)
-        ).sum()
-
-        alpha_count: int = alpha_mask.sum()
-        alpha_hat: float = alpha_count / c_values.size
-
-        # Used to count cases of beta and gamma transition cases.
-        beta_count: int = 0
-        gamma_count: int = 0
-
-        # Trivial variable.
-        total_transitions: int = time_steps - 1
-
-        # Count cases of transitions.
-        for t in range(total_transitions):
-            # This is so nice.
-            match (c_values[t], c_values[t + 1]):
-                case (2, 0) | (2, 1):  # From 2 -> {0,1}
-                    beta_count += 1
-                case (0, 2) | (1, 2):  # From {0,1} -> 2
-                    gamma_count += 1
-
-        beta_hat: float = beta_count / total_transitions
-        gamma_hat: float = gamma_count / total_transitions
-
-        return (lambda_0_hat, lambda_1_hat, alpha_hat, beta_hat, gamma_hat)
-
-
-def expectation_maximisation_hard_assignment(
-        joint_prob: FloatArray, num_nodes: int
-) -> tuple[IntArray, IntArray]:
-    """Compute Z and C hard-assignments.
-
-    Args:
-        joint_prob (FloatArray): Infered normalised joint probabilities.
-            You can get this from `HMM.infer`.
-
-    Returns:
-        tuple[IntArray, IntArray]: C a
-    """
-    # Recall dimensions of joint probability tensor:
-    # ... (T-1, num possible Cs at each t, num possible Cs at t + 1)
-    # Thus, time_steps here will be (T-1)
-    time_steps: int = joint_prob.shape[0]
-
-    # Preparation.
-    z_hat = np.zeros((time_steps, num_nodes), dtype=int)
-    c_hat = np.zeros(time_steps, dtype=int)
-
-    for t in range(time_steps):
-        # Star struck. This one is literally in the task description.
-        c_hat[t] = np.argmax(np.sum(joint_prob[t], axis=1))
-
-        for i in range(num_nodes):
-            # Compute marginals, i.e. $P(Z | X, C)$.
-            marginal_probs = np.zeros(2)
-            for z in range(2):
-                marginal_probs[z] = joint_prob[t, c_hat[t], z]
-
-            # No way.
-            z_hat[t, i] = np.argmax(marginal_probs)
-
-    return z_hat, c_hat
