@@ -25,7 +25,7 @@ t = 10
 c, z, x = hmm.forward(n, t, seed=2)
 print(c, z, x)
 
-hmm.belief_propagation(x)
+hmm.nielslief_propagation(x)
 
 # # Infer C for every time step
 # for i in range(t):

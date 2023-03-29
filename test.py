@@ -15,7 +15,10 @@ if __name__ == "__main__":
 
     # simulate
     hmm = HMM(
-        Gamma, alpha, lambda Z: sample_poisson_stimuli(Z, rates), processing_modes=[0, 1, 2]
+        Gamma,
+        alpha,
+        lambda Z: sample_poisson_stimuli(Z, rates),
+        processing_modes=[0, 1, 2],
     )
     n = 10
     t = 100

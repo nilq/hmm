@@ -29,10 +29,10 @@ class HMM:
         self.processing_modes = processing_modes
         self.rates = rates
 
-        self.p_z_given_c_mat = np.array([
-            [1 - self.alpha, self.alpha, 0.5],
-            [self.alpha, 1 - self.alpha, 0.5]
-        ])
+        self.p_z_given_c_mat = np.array(
+            [[1 - self.alpha, self.alpha, 0.5],
+             [self.alpha, 1 - self.alpha, 0.5]]
+        )
 
         # Used for belief calibration
         self.mu_cz = None
@@ -108,7 +108,7 @@ class HMM:
         return self.transition[current_c][c_next]
 
     def forward(
-            self, num_nodes: int, time_steps=100, initial_c=2, seed=1
+        self, num_nodes: int, time_steps=100, initial_c=2, seed=1
     ) -> tuple[list[int], FloatArray, FloatArray]:
         """Run forward simulation with specified node amount and time steps.
 
@@ -148,151 +148,151 @@ class HMM:
 
         return processing_modes, focus, activations
 
-    def compute_messages_from_x_and_z(
-            self, t: int, num_nodes: int, observations: IntArray
-    ):
-        """Compute clique message of clique X-Z at timestep t.
+    def compute_messages_from_clique_zc_to_cc(
+        self, observations: IntArray
+    ) -> FloatArray:
+        # P(X|Z)
+        p_x_given_z = np.array(
+            [
+                poisson.pmf(observations, self.rates[1]),
+                poisson.pmf(observations, self.rates[0]),
+            ]
+        )
+        
+        # return np.array([p_x_given_z[0] * self.p_z_given_c_mat[0, c] + p_x_given_z[1] * self.p_z_given_c_mat[1, c] for c in [0, 1, 2]])
+        return np.einsum("ijk, il -> ljk", p_x_given_z, self.p_z_given_c_mat)
+
+
+
+    def nielslief_propagation(
+        self, observations: IntArray, initial_c: int = 2
+    ) -> tuple[FloatArray, FloatArray]:
+        """Use message passing to compute marginal C and Z propabilities given observed X.
 
         Args:
-            t (int): Time step t.
+            observations (IntArray): Observed stimuli X.
+            initial_c (int, optional): Initial C value. Defaults to 2.
 
         Returns:
-            _type_: Clique message.
-        """
-        messages_from_x_and_z = []
-
-        for z_t_i in range(num_nodes):
-            # Observed stimuli corresponding to Z_t
-            observed_stimuli = observations[t][z_t_i]
-
-            messages_from_x_and_z.append(
-                [
-                    poisson.pmf(observed_stimuli, self.rates[0]),
-                    poisson.pmf(observed_stimuli, self.rates[1]),
-                ]
-            )
-
-        return messages_from_x_and_z
-
-    def compute_messages_from_z_and_c(
-            self, messages_from_x_and_z, z_index: int | None = None
-    ):
-        messages_from_z_and_c = []
-
-        for c in self.processing_modes:
-            # Snoop Dogg approved.
-            joint_x_given_c = 1
-
-            if z_index is None:
-                all_messages = messages_from_x_and_z
-            else:
-                all_messages = (
-                        messages_from_x_and_z[:z_index] + messages_from_x_and_z[z_index:]
-                )
-
-            for message in all_messages:
-                # P(X|C) = P(X | Z = 0)P(Z = 0 | C) + P(X | Z = 1)P(Z = 1 | C)
-                probability_of_x_given_c = sum(
-                    message[z] * self.p_z_given_c(z, c) for z in range(2)
-                )
-                # P(X_1 | C)P(X_2 | C) = P(X_1, X_2 | C)
-                joint_x_given_c *= probability_of_x_given_c
-
-            messages_from_z_and_c.append(joint_x_given_c)
-
-        return np.array(messages_from_z_and_c)
-
-    def clique_tree_forward(
-            self, observations: IntArray, timestep: int, initial_c: int = 2
-    ) -> FloatArray:
-        """_summary_
-
-        Returns:
-            FloatArray: _description_
+            tuple[FloatArray, FloatArray]: Marginals for C and Z.
         """
         time_steps, num_nodes = observations.shape
+        num_states: int = len(self.processing_modes)
+
+        # Universal message from Z-C cliques to C-C cliques.
+        mu_cz = self.compute_messages_from_clique_zc_to_cc(observations)
+
+        # Messages between C-C cliques.
+        # TODO: Contains forward probs (i.e. CC message) for each t. (double check this)
+        mu_cc = np.zeros([time_steps - 1, num_states])
+        beta_cs = np.zeros([time_steps, num_states])  # This is our final beliefs to be updated.
 
         # Forward pass.
+        forward_prob = np.ones(num_states)
 
-        forward_prob = np.ones(len(self.processing_modes))
-
-        for t in range(timestep):
-            messages_from_x_and_z = self.compute_messages_from_x_and_z(t, num_nodes, observations)
-            messages_from_z_and_c = self.compute_messages_from_z_and_c(
-                messages_from_x_and_z, t
-            )
-
+        # Informing nodes up until the last node, which will be handled after.
+        for t in range(time_steps - 1):
             if t == 0:
+                # P(X1|C1=2)P(X2|C1=2)...P(Xn|C1=2) P(C2|C1=2)P(C1=2)
+                # Yields P(C2, x1,...,xn)
                 forward_prob = (
-                        messages_from_z_and_c[initial_c] * self.transition[initial_c]
+                    np.prod(mu_cz[initial_c, t, :])
+                    * self.transition[initial_c]  # * 1, which is P(C1=2)
                 )
             else:
-                forward_prob = np.einsum(
-                    "i, j, ij -> i",
-                    forward_prob,
-                    messages_from_z_and_c,
-                    self.transition,
-                )
+                # P(C | X_prev)P(X1|C)P(X2|C)...P(Xn|C) = P(C|X_prev)P(X| C)=P(X,C|X_prev)
+                beta_cs[t] = forward_prob * np.prod(mu_cz[:, t, :], axis=1)
+                beta_cs[t] /= beta_cs[t].sum()
+                # We take the product with np.prod.
+                # The following computes
+                # P(C_next, X|X_prev) = Sum_C P(C_next| C)*P(X,C|X_prev)
+                # (by cond indep) = Sum_C P(C_next|X,C)*P(X,C|X_prev)
+                # = Sum_C P(C_next, X, C|X_prev)
+                forward_prob = np.dot(self.transition.T, beta_cs[t])
+                forward_prob /= forward_prob.sum()
 
-        return forward_prob
+            mu_cc[t] = forward_prob
 
-    def messages_from_clique_zc_to_cc(self, observations):
-        # P(X|Z)
-        p_x_given_z = np.array([
-            poisson.pmf(observations, self.rates[0]),
-            poisson.pmf(observations, self.rates[1]),
-        ])
+        # Mesages between Cs.
 
-        self.mu_cz = p_x_given_c = (
-            np.einsum('ijk, il -> ljk',
-                      p_x_given_z,
-                      self.p_z_given_c_mat
-                      )
-        )
-        # Above is equivalent to
-        # np.array([p_x_given_z[0] * self.p_z_given_c_mat[0, c] + p_x_given_z[1] * self.p_z_given_c_mat[1, c] for c in [0, 1, 2]])
-        return p_x_given_c
+        # P(X_T,C_T|X_prev) = P(C_T|X_prev) P(X_T|C_T)
+        sigma = beta_cs[-1] = forward_prob * np.prod(mu_cz[:, -1, :], axis=1)
+        # P(C_T|X_all)
+        beta_cs[-1] = beta_cs[-1] / sum(beta_cs[-1])
+
+        # Backward pass.
+        backward_prob = np.ones(num_states)
+
+        for t in range(time_steps - 2, -1, -1):
+            # Sum_C_T P(C_T|C_T-1)P(X_T|C_T) = P(X_T|C_T-1)
+            backward_prob = np.dot(
+                self.transition, backward_prob * sigma
+            )
+
+            backward_prob /= backward_prob.sum()
+            beta_cs[t] *= backward_prob
+            beta_cs[t] /= beta_cs[t].sum()
+
+            sigma = beta_cs[t]
+
+        z_marginals = np.zeros((time_steps, num_nodes, 2))
+        
+        # for t in range(1, time_steps - 1):
+        #     for n in range(num_nodes):
+        #         z_marginals[t, n, 0] = beta_cs[t] * mu_cz[: t, n]
+        #         z_marginals[t, n, 1] = 1 - z_marginals[t, n, 0]
+
+        return beta_cs, z_marginals
 
     def belief_propagation(self, observations, initial_c: int = 2):
         T = len(observations)
         num_processing_modes = len(self.processing_modes)
 
         # Pass up from zc to cc
-        self.messages_from_clique_zc_to_cc(observations)
+        mu_cz = self.compute_messages_from_clique_zc_to_cc(observations)
         mu_cc = []
         beta_cs = np.zeros((T, num_processing_modes))
 
         # Forward pass
         forward_prob = np.ones(num_processing_modes)
+<<<<<<< HEAD
         for t in range(T - 2):
+=======
+        for t in range(T - 1):
+>>>>>>> 0d9ffd8 (Better Cs)
             if t == 0:
                 # P(X1|C1=2)P(X2|C1=2)...P(Xn|C1=2) P(C2|C1=2)P(C1=2)
                 # Yields P(C2, x1,...,xn)
                 forward_prob = (
+<<<<<<< HEAD
                         np.prod(self.mu_cz[initial_c, t, :]) * self.transition[initial_c]  # * 1, which is P(C1=2)
+=======
+                    np.prod(mu_cz[initial_c, t, :])
+                    * self.transition[initial_c]  # * 1, which is P(C1=2)
+>>>>>>> 0d9ffd8 (Better Cs)
                 )
             else:
                 # P(C | X_prev)P(X1|C)P(X2|C)...P(Xn|C) = P(C|X_prev)P(X| C)=P(X,C|X_prev)
-                beta_cs[t] = forward_prob * np.prod(self.mu_cz[:, t, :], axis=1)
+                beta_cs[t] = forward_prob * np.prod(mu_cz[:, t, :], axis=1)
                 # We take the product with np.prod
                 # forward_prob is
                 # The following computes
                 # P(C_next, X|X_prev) = Sum_C P(C_next| C)*P(X,C|X_prev)
                 # (by cond indep) = Sum_C P(C_next|X,C)*P(X,C|X_prev)
                 # = Sum_C P(C_next, X, C|X_prev)
-                forward_prob = np.dot(
-                    self.transition.T,
-                    beta_cs[t]
-                )
+                forward_prob = np.dot(self.transition.T, beta_cs[t])
                 # Get P(C|X)
                 beta_cs[t] /= sum(beta_cs[t])
             # P(C_next| X_till_now) = P(C_next, X|X_prev)/Sum_C P(C_next, X|X_prev)
+            # TODO: Double check.
             forward_prob = forward_prob / sum(forward_prob)
             mu_cc.append(forward_prob)
+
+        # Messages between Cs.
         self.mu_cc = mu_cc
         # We are now at the T'th node, this node is fully informed
         # P(X_T,C_T|X_prev) = P(C_T|X_prev) P(X_T|C_T)
-        beta_cs[-1] = sigma = forward_prob * np.prod(self.mu_cz[:, -1, :], axis=1)
+        beta_cs[-1] = sigma = forward_prob * np.prod(mu_cz[:, -1, :], axis=1)
         # P(C_T|X_all)
         beta_cs[-1] = beta_cs[-1] / sum(beta_cs[-1])
         # We proceed to do downward pass
@@ -302,8 +302,10 @@ class HMM:
             a = np.dot(self.transition, sigma / self.mu_cc[t])
             downward_prob = a * beta_cs[t]
 
+        # Another one. Zs.
+
         # Should return list inferred of C probabilities and Z probabilities
-        return
+        return beta_cs
 
     def clique_tree_backward(self, observations: IntArray, timestep: int) -> FloatArray:
         """_summary_
@@ -321,7 +323,9 @@ class HMM:
         backward_prob = np.ones(len(self.processing_modes))
 
         for t in range(time_steps - 1, timestep, -1):
-            messages_from_x_and_z = self.compute_messages_from_x_and_z(t, num_nodes, observations)
+            messages_from_x_and_z = self.compute_messages_from_x_and_z(
+                t, num_nodes, observations
+            )
             messages_from_z_and_c = self.compute_messages_from_z_and_c(
                 messages_from_x_and_z, t
             )
@@ -337,7 +341,7 @@ class HMM:
         return backward_prob
 
     def clique_tree_forward_backward(
-            self, observations: IntArray, timestep: int, initial_c: int = 2
+        self, observations: IntArray, timestep: int, initial_c: int = 2
     ):
         """Compute forward and backward probabilities at given timestep.
 
@@ -355,7 +359,7 @@ class HMM:
         )
 
     def infer_marginal_c(
-            self, observations: IntArray, time_of_c: int, initial_c: int = 2
+        self, observations: IntArray, time_of_c: int, initial_c: int = 2
     ) -> FloatArray:
         """_summary_
 
@@ -369,7 +373,9 @@ class HMM:
         )
 
         # At time t of c_t.
-        messages_from_x_and_z = self.compute_messages_from_x_and_z(time_of_c, num_nodes, observations)
+        messages_from_x_and_z = self.compute_messages_from_x_and_z(
+            time_of_c, num_nodes, observations
+        )
         messages_from_z_and_c = self.compute_messages_from_z_and_c(
             messages_from_x_and_z, time_of_c
         )
@@ -380,11 +386,13 @@ class HMM:
         return joint_with_evidence / np.sum(joint_with_evidence)
 
     def infer_marginal_z(
-            self, observations: IntArray, timestep: int, z_index: int, initial_c: int = 2
+        self, observations: IntArray, timestep: int, z_index: int, initial_c: int = 2
     ):
         time_steps, num_nodes = observations.shape
 
-        messages_from_x_and_z = self.compute_messages_from_x_and_z(timestep, num_nodes, observations)
+        messages_from_x_and_z = self.compute_messages_from_x_and_z(
+            timestep, num_nodes, observations
+        )
         messages_from_z_and_c = self.compute_messages_from_z_and_c(
             messages_from_x_and_z, z_index
         )
@@ -398,9 +406,45 @@ class HMM:
             [[self.p_z_given_c(z, c) for c in self.processing_modes] for z in (0, 1)]
         )
         poisson_probs = np.array(
-            [poisson.pmf(observations[timestep][z_index], self.rates[z]) for z in (0, 1)]
+            [
+                poisson.pmf(observations[timestep][z_index], self.rates[z])
+                for z in (0, 1)
+            ]
         )
 
         z_given_x = poisson_probs * np.einsum("ij,j->i", z_given_c, joint_with_evidence)
 
         return z_given_x / np.sum(z_given_x)
+
+
+def expectation_maximisation_hard_assignment(
+    c_marginals: FloatArray, z_marginals: FloatArray, num_nodes: int
+) -> tuple[IntArray, IntArray]:
+    """Compute Z and C hard-assignments.
+
+    Args:
+        joint_prob (FloatArray): Infered normalised joint probabilities.
+            You can get this from `HMM.infer`.
+
+    Returns:
+        tuple[IntArray, IntArray]: C a
+    """
+    # Recall dimensions of joint probability tensor:
+    # ... (T-1, num possible Cs at each t, num possible Cs at t + 1)
+    # Thus, time_steps here will be (T-1)
+    time_steps: int = c_marginals.shape[0]
+
+    # Preparation.
+    z_hat = np.zeros((time_steps, num_nodes), dtype=int)
+    c_hat = np.zeros(time_steps, dtype=int)
+
+    for t in range(time_steps):
+        # Star struck. This one is literally in the task description.
+        c_hat[t] = np.argmax(c_marginals)
+
+        for i in range(num_nodes):
+            # Compute marginals, i.e. $P(Z | X, C)$.
+            # No way.
+            z_hat[t, i] = np.argmax(z_marginals)
+
+    return z_hat, c_hat
