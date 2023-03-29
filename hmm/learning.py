@@ -1,4 +1,5 @@
 import numpy as np
+from hmm.hmm import HMM
 
 from hmm.types import IntArray, FloatArray
 
@@ -34,8 +35,8 @@ def learn_parameters_everything_observed(
 
     # NumPy trick to get sum of (Z_{t,i} = C_t = 0 or 1)
     alpha_mask = (
-            (z_values == c_values[:, None]).any(axis=1) & (c_values <= 1)
-    ).sum()
+        (z_values == c_values[:, None]).any(axis=1) & (c_values <= 1)
+    )
 
     alpha_count: int = alpha_mask.sum()
     alpha_hat: float = alpha_count / c_values.size
@@ -62,38 +63,45 @@ def learn_parameters_everything_observed(
     return (lambda_0_hat, lambda_1_hat, alpha_hat, beta_hat, gamma_hat)
 
 
-def expectation_maximisation_hard_assignment(
-        joint_prob: FloatArray, num_nodes: int
-) -> tuple[IntArray, IntArray]:
-    """Compute Z and C hard-assignments.
+def hard_assignment_em(
+    x_values: IntArray,
+    observed_focus: IntArray,
+    hmm: HMM,
+    max_iterations: int = 100,
+) -> HMM:
+    time_steps, num_nodes = x_values.shape
 
-    Args:
-        joint_prob (FloatArray): Infered normalised joint probabilities.
-            You can get this from `HMM.infer`.
+    for i in range(max_iterations):
+        # E-step
+        c_marginals, _ = hmm.nielslief_propagation(x_values)
+        c_argmax = np.argmax(c_marginals, axis=1)
+        
+        # M-step
+        (
+            lambda_0_hat,
+            lambda_1_hat,
+            learned_alpha,
+            learned_beta,
+            learned_gamma
+        ) = learn_parameters_everything_observed(c_argmax, observed_focus, x_values)
 
-    Returns:
-        tuple[IntArray, IntArray]: C a
-    """
-    # Recall dimensions of joint probability tensor:
-    # ... (T-1, num possible Cs at each t, num possible Cs at t + 1)
-    # Thus, time_steps here will be (T-1)
-    time_steps: int = joint_prob.shape[0]
+        learned_rates = [lambda_0_hat, lambda_1_hat]
+        learned_transition_matrix = np.array(
+            [[1 - learned_gamma, 0, learned_gamma],
+             [0, 1 - learned_gamma, learned_gamma],
+             [learned_beta / 2, learned_beta / 2, 1 - learned_beta]]
+        )
 
-    # Preparation.
-    z_hat = np.zeros((time_steps, num_nodes), dtype=int)
-    c_hat = np.zeros(time_steps, dtype=int)
+        diff_rates = abs(np.array(hmm.rates) - np.array(learned_rates)).sum()
+        diff_transition = abs(hmm.transition - learned_transition_matrix).sum()
+        diff_alpha = abs(hmm.alpha - learned_alpha)
 
-    for t in range(time_steps):
-        # Star struck. This one is literally in the task description.
-        c_hat[t] = np.argmax(np.sum(joint_prob[t], axis=1))
+        if (diff_rates + diff_transition + diff_alpha) < 1e-9:
+            print(f"Found good after {i} iterations!")
+            break
 
-        for i in range(num_nodes):
-            # Compute marginals, i.e. $P(Z | X, C)$.
-            marginal_probs = np.zeros(2)
-            for z in range(2):
-                marginal_probs[z] = joint_prob[t, c_hat[t], z]
-
-            # No way.
-            z_hat[t, i] = np.argmax(marginal_probs)
-
-    return z_hat, c_hat
+        hmm.alpha = learned_alpha
+        hmm.transition = learned_transition_matrix
+        hmm.rates = learned_rates
+    
+    return hmm

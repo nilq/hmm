@@ -237,10 +237,12 @@ class HMM:
 
         z_marginals = np.zeros((time_steps, num_nodes, 2))
         
-        # for t in range(1, time_steps - 1):
-        #     for n in range(num_nodes):
-        #         z_marginals[t, n, 0] = beta_cs[t] * mu_cz[: t, n]
-        #         z_marginals[t, n, 1] = 1 - z_marginals[t, n, 0]
+        # Compute marginal joint distribution for Z
+        for t in range(time_steps):
+            for i in range(num_nodes):
+                for c in range(num_states):
+                    z_marginals[t, i, 1] += beta_cs[t, c] * mu_cz[c, t, i]
+                z_marginals[t, i, 0] = 1 - z_marginals[t, i, 1]
 
         return beta_cs, z_marginals
 
@@ -409,34 +411,3 @@ class HMM:
         return z_given_x / np.sum(z_given_x)
 
 
-def expectation_maximisation_hard_assignment(
-    c_marginals: FloatArray, z_marginals: FloatArray, num_nodes: int
-) -> tuple[IntArray, IntArray]:
-    """Compute Z and C hard-assignments.
-
-    Args:
-        joint_prob (FloatArray): Infered normalised joint probabilities.
-            You can get this from `HMM.infer`.
-
-    Returns:
-        tuple[IntArray, IntArray]: C a
-    """
-    # Recall dimensions of joint probability tensor:
-    # ... (T-1, num possible Cs at each t, num possible Cs at t + 1)
-    # Thus, time_steps here will be (T-1)
-    time_steps: int = c_marginals.shape[0]
-
-    # Preparation.
-    z_hat = np.zeros((time_steps, num_nodes), dtype=int)
-    c_hat = np.zeros(time_steps, dtype=int)
-
-    for t in range(time_steps):
-        # Star struck. This one is literally in the task description.
-        c_hat[t] = np.argmax(c_marginals)
-
-        for i in range(num_nodes):
-            # Compute marginals, i.e. $P(Z | X, C)$.
-            # No way.
-            z_hat[t, i] = np.argmax(z_marginals)
-
-    return z_hat, c_hat
