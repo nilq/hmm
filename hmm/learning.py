@@ -34,8 +34,6 @@ def learn_parameters_everything_observed(
     lambda_1_hat: float = x_values[z_1_mask].sum() / z_1_mask.sum()
     
     alpha_1 = z_values[c_values == 1].flatten()
-    print(alpha_1)
-    print(sum(alpha_1), len(alpha_1))
     alpha_hat: float = sum(alpha_1) / len(alpha_1)
 
     # Used to count cases of beta and gamma transition cases.
