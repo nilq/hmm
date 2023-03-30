@@ -35,7 +35,7 @@ def learn_parameters_everything_observed(
 
     alpha_1 = z_values[c_values == 1].flatten()
     if len(alpha_1) == 0:
-        alpha_0 = z_values[c_values == 1].flatten()
+        alpha_0 = z_values[c_values == 0].flatten()
         alpha_hat = 1 - (sum(alpha_0) / len(alpha_0))
     else:
         alpha_hat: float = sum(alpha_1) / len(alpha_1)
@@ -72,7 +72,6 @@ def learn_parameters_everything_observed(
 
 def hard_assignment_em(
     x_values: IntArray,
-    observed_focus: IntArray,
     hmm: HMM,
     max_iterations: int = 100,
 ) -> HMM:
@@ -80,8 +79,23 @@ def hard_assignment_em(
 
     for i in range(max_iterations):
         # E-step
-        c_marginals, _ = hmm.nielslief_propagation(x_values)
-        c_argmax = np.argmax(c_marginals, axis=1)
+        # c_marginals, z_marginals = hmm.nielslief_propagation(x_values)
+        # c_marginals = [hmm.infer_marginal_c(x_values, t) for t in range(time_steps)]
+        # z_marginals = [[hmm.infer_marginal_z(x_values, t, z) for z in range(8)] for t in range(time_steps)]
+        # c_argmax = np.argmax(c_marginals, axis=1)        
+        # z_argmax = [[z[0] > z[1] for z in z_marg] for z_marg in z_marginals]
+        # z_argmax = np.array(z_argmax).astype(int)
+        joint_probabilities_normalised = hmm.infer(x_values)
+        # Compute the marginal probabilities of C at each time step
+        marginal_prob_C = np.sum(joint_probabilities_normalised, axis=2)
+        # print(joint_probabilities_normalised)
+        # print(marginal_prob_C)
+        # Calculate the estimated C at each time step
+        c_argmax = np.argmax(marginal_prob_C, axis=1)
+        # Compute the most likely Z given the estimated C
+        z_argmax = np.zeros((c_argmax.shape[0], num_nodes), dtype=int)
+        for t, c in enumerate(c_argmax):
+            z_argmax[t] = hmm.sample_hidden_z(num_nodes, c)
 
         # M-step
         (
@@ -90,7 +104,7 @@ def hard_assignment_em(
             learned_alpha,
             learned_beta,
             learned_gamma
-        ) = learn_parameters_everything_observed(c_argmax, observed_focus, x_values)
+        ) = learn_parameters_everything_observed(c_argmax, z_argmax, x_values[:-1])
 
         learned_rates = [lambda_0_hat, lambda_1_hat]
 

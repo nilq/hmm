@@ -4,8 +4,38 @@ import numpy as np
 import numpy.typing as npt
 
 from hmm.types import FloatArray, IntArray
-
+import math
+from itertools import product
 from scipy.stats import poisson
+from scipy.special import factorial
+
+
+def sample_poisson_stimuli(z_values: IntArray, rates: IntArray):
+    sample_rates = [rates[z] for z in z_values]
+    return np.random.poisson(sample_rates)
+
+def poisson_pmf(x: int, lambda_z: float) -> float:
+    """Compute the Poisson probability mass function (PMF) for given observation x and rate parameter lambda_z."""
+    return np.exp(-lambda_z) * (lambda_z**x) / factorial(x)
+
+
+def compute_emission_probabilities(possible_x, possible_z, rates):
+    """Compute emission probabilities P(X | Z).
+    Args:
+        possible_x (IntArray): All possible observations.
+        possible_z (IntArray): All possible hidden states.
+        rates (list[int]): Poisson distribution rates for each hidden state Z.
+    Returns:
+        FloatArray: Emission probability matrix, shape (len(possible_x), len(possible_z)).
+    """
+    emission_probs = np.zeros((len(possible_x), len(possible_z)))
+
+    for i, x in enumerate(possible_x):
+        for j, z in enumerate(possible_z):
+            rate = rates[z]
+            emission_probs[i, j] = np.exp(-rate) * (rate**x) / factorial(x)
+
+    return emission_probs
 
 
 class HMM:
@@ -28,7 +58,7 @@ class HMM:
         self.transition = transition
         self.processing_modes = processing_modes
         self.rates = rates
-
+        self.states = [0, 1, 2]
         self.p_z_given_c_mat = np.array(
             [[1 - self.alpha, self.alpha, 0.5],
              [self.alpha, 1 - self.alpha, 0.5]]
@@ -158,11 +188,9 @@ class HMM:
                 poisson.pmf(observations, self.rates[0]),
             ]
         )
-        
+
         # return np.array([p_x_given_z[0] * self.p_z_given_c_mat[0, c] + p_x_given_z[1] * self.p_z_given_c_mat[1, c] for c in [0, 1, 2]])
         return np.einsum("ijk, il -> ljk", p_x_given_z, self.p_z_given_c_mat)
-
-
 
     def nielslief_propagation(
         self, observations: IntArray, initial_c: int = 2
@@ -185,7 +213,8 @@ class HMM:
         # Messages between C-C cliques.
         # TODO: Contains forward probs (i.e. CC message) for each t. (double check this)
         mu_cc = np.zeros([time_steps - 1, num_states])
-        beta_cs = np.zeros([time_steps, num_states])  # This is our final beliefs to be updated.
+        # This is our final beliefs to be updated.
+        beta_cs = np.zeros([time_steps, num_states])
 
         # Forward pass.
         forward_prob = np.ones(num_states)
@@ -236,7 +265,7 @@ class HMM:
             sigma = beta_cs[t]
 
         z_marginals = np.zeros((time_steps, num_nodes, 2))
-        
+
         # Compute marginal joint distribution for Z
         for t in range(time_steps):
             for i in range(num_nodes):
@@ -379,6 +408,59 @@ class HMM:
 
         return joint_with_evidence / np.sum(joint_with_evidence)
 
+    def compute_messages_from_x_and_z(
+        self, t: int, num_nodes: int, observations: IntArray
+    ):
+        """Compute clique message of clique X-Z at timestep t.
+        Args:
+            t (int): Time step t.
+        Returns:
+            _type_: Clique message.
+        """
+        messages_from_x_and_z = []
+
+        for z_t_i in range(num_nodes):
+            # Observed stimuli corresponding to Z_t
+            observed_stimuli = observations[t][z_t_i]
+
+            messages_from_x_and_z.append(
+                [
+                    poisson.pmf(observed_stimuli, self.rates[0]),
+                    poisson.pmf(observed_stimuli, self.rates[1]),
+                ]
+            )
+
+        return messages_from_x_and_z
+
+    def compute_messages_from_z_and_c(
+        self, messages_from_x_and_z, z_index: int | None = None
+    ):
+        messages_from_z_and_c = []
+
+        for c in self.processing_modes:
+            # Snoop Dogg approved.
+            joint_x_given_c = 1
+
+            if z_index is None:
+                all_messages = messages_from_x_and_z
+            else:
+                all_messages = (
+                    messages_from_x_and_z[:z_index] +
+                    messages_from_x_and_z[z_index:]
+                )
+
+            for message in all_messages:
+                # P(X|C) = P(X | Z = 0)P(Z = 0 | C) + P(X | Z = 1)P(Z = 1 | C)
+                probability_of_x_given_c = sum(
+                    message[z] * self.p_z_given_c(z, c) for z in range(2)
+                )
+                # P(X_1 | C)P(X_2 | C) = P(X_1, X_2 | C)
+                joint_x_given_c *= probability_of_x_given_c
+
+            messages_from_z_and_c.append(joint_x_given_c)
+
+        return np.array(messages_from_z_and_c)
+
     def infer_marginal_z(
         self, observations: IntArray, timestep: int, z_index: int, initial_c: int = 2
     ):
@@ -397,7 +479,8 @@ class HMM:
         joint_with_evidence = forward_prob * backward_prob * messages_from_z_and_c
 
         z_given_c = np.array(
-            [[self.p_z_given_c(z, c) for c in self.processing_modes] for z in (0, 1)]
+            [[self.p_z_given_c(z, c) for c in self.processing_modes]
+             for z in (0, 1)]
         )
         poisson_probs = np.array(
             [
@@ -406,8 +489,133 @@ class HMM:
             ]
         )
 
-        z_given_x = poisson_probs * np.einsum("ij,j->i", z_given_c, joint_with_evidence)
+        z_given_x = poisson_probs * \
+            np.einsum("ij,j->i", z_given_c, joint_with_evidence)
 
         return z_given_x / np.sum(z_given_x)
 
+    def clique_tree_forward(
+            self, observations: IntArray, timestep: int, initial_c: int = 2
+    ) -> FloatArray:
+        """summary
+        Returns:
+            FloatArray: description
+        """
+        time_steps, num_nodes = observations.shape
 
+        # Forward pass.
+
+        forward_prob = np.ones(len(self.processing_modes))
+
+        for t in range(timestep):
+            messages_from_x_and_z = self.compute_messages_from_x_and_z(
+                t, num_nodes, observations)
+            messages_from_z_and_c = self.compute_messages_from_z_and_c(
+                messages_from_x_and_z, t
+            )
+
+            if t == 0:
+                forward_prob = (
+                    messages_from_z_and_c[initial_c] *
+                    self.transition[initial_c]
+                )
+            else:
+                forward_prob = np.einsum(
+                    "i, j, ij -> i",
+                    forward_prob,
+                    messages_from_z_and_c,
+                    self.transition,
+                )
+
+        return forward_prob
+
+
+    def emission_probabilities(self, x: int, current_c: int) -> float:
+        match current_c:
+            case 0:
+                p = 1 - self.alpha
+            case 1:
+                p = self.alpha
+            case 2:
+                p = 0.5
+
+        # Compute probabilities for Z = 0 and Z = 1
+        emission_probs = np.zeros(2)
+        for z in range(2):
+            rate = self.rates[z]
+            emission_probs[z] = sum((np.exp(-rate) * (rate**x)) / factorial(x))
+
+        # Weighted probability based on the relationship between C and Z
+        weighted_prob = p * emission_probs[1] + (1 - p) * emission_probs[0]
+        return weighted_prob
+
+    def forward_pass(self, observations: IntArray) -> tuple[FloatArray, FloatArray]:
+        time_steps: int = len(observations)
+        num_states: int = len(self.states)
+
+        forward_prob = np.zeros([time_steps, num_states])
+        scaling_factors = np.zeros(time_steps)
+
+        for t in range(time_steps):
+            if t == 0:
+                for i in range(num_states):
+                    emission_prob = self.emission_probabilities(
+                        observations[t], i)
+                    forward_prob[t, i] = self.alpha * emission_prob
+            else:
+                for j in range(num_states):
+                    emission_prob = self.emission_probabilities(
+                        observations[t], j)
+                    forward_prob[t, j] = (
+                        np.dot(forward_prob[t - 1], self.transition[:, j])
+                        * emission_prob
+                    )
+
+            scaling_factors[t] = np.sum(forward_prob[t])
+            forward_prob[t] /= scaling_factors[t]
+
+        return forward_prob, scaling_factors
+
+    def backward_pass(
+        self, observations: IntArray, scaling_factors: FloatArray
+    ) -> FloatArray:
+        time_steps: int = len(observations)
+        num_states: int = len(self.states)
+        backward_prob = np.zeros([time_steps, num_states])
+
+        # Base case.
+        backward_prob[-1] = 1
+
+        for t in range(time_steps - 2, -1, -1):
+            for i in range(num_states):
+                emission_prob = self.emission_probabilities(
+                    observations[t + 1], i)
+                backward_prob[t, i] = np.dot(
+                    self.transition[i], emission_prob * backward_prob[t + 1]
+                )
+            backward_prob[t] /= scaling_factors[t + 1]
+
+        return backward_prob
+
+    def infer(self, observations: IntArray) -> FloatArray:
+        forward_prob, scaling_factors = self.forward_pass(observations)
+        backward_prob = self.backward_pass(observations, scaling_factors)
+
+        time_steps, num_states = forward_prob.shape
+        joint_prob = np.zeros((time_steps - 1, num_states, num_states))
+
+        for t in range(time_steps - 1):
+            for i in range(num_states):
+                for j in range(num_states):
+                    emission_prob = self.emission_probabilities(
+                        observations[t + 1], j)
+                    joint_prob[t, i, j] = (
+                        forward_prob[t, i]
+                        * self.transition[i, j]
+                        * emission_prob
+                        * backward_prob[t + 1, j]
+                    )
+
+        joint_prob /= np.sum(joint_prob, axis=(1, 2), keepdims=True)
+
+        return joint_prob

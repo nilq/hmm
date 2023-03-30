@@ -23,9 +23,10 @@ n = 5
 t = 10
 
 c, z, x = hmm.forward(n, t, seed=2)
-print(c, z, x)
+# print(c, z, x)
 
-hmm.nielslief_propagation(x)
+c_marginals, z_marginals = hmm.nielslief_propagation(x)
+print(c_marginals, z_marginals)
 
 # # Infer C for every time step
 # for i in range(t):
