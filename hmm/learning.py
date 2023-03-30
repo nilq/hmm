@@ -32,13 +32,19 @@ def learn_parameters_everything_observed(
     # Compute the lambdas as the average stimulis for respective Z-values.
     lambda_0_hat: float = x_values[z_0_mask].sum() / z_0_mask.sum()
     lambda_1_hat: float = x_values[z_1_mask].sum() / z_1_mask.sum()
-    
+
     alpha_1 = z_values[c_values == 1].flatten()
-    alpha_hat: float = sum(alpha_1) / len(alpha_1)
+    if len(alpha_1) == 0:
+        alpha_0 = z_values[c_values == 1].flatten()
+        alpha_hat = 1 - (sum(alpha_0) / len(alpha_0))
+    else:
+        alpha_hat: float = sum(alpha_1) / len(alpha_1)
 
     # Used to count cases of beta and gamma transition cases.
     beta_count: int = 0
+    beta_total: int = 0
     gamma_count: int = 0
+    gamma_total: int = 0
 
     # Trivial variable.
     total_transitions: int = time_steps - 1
@@ -47,13 +53,19 @@ def learn_parameters_everything_observed(
     for t in range(total_transitions):
         # This is so nice.
         match (c_values[t], c_values[t + 1]):
-            case (2, 0) | (2, 1):  # From 2 -> {0,1}
+            case (2, 1) | (2, 0):
                 beta_count += 1
-            case (0, 2) | (1, 2):  # From {0,1} -> 2
+                beta_total += 1
+            case (2, 2):
+                beta_total += 1
+            case (0, 2) | (1, 2):
                 gamma_count += 1
+                gamma_total += 1
+            case (0, 0) | (1, 1):
+                gamma_total += 1
 
-    beta_hat: float = beta_count / total_transitions
-    gamma_hat: float = gamma_count / total_transitions
+    beta_hat: float = beta_count / beta_total
+    gamma_hat: float = gamma_count / gamma_total
 
     return (lambda_0_hat, lambda_1_hat, alpha_hat, beta_hat, gamma_hat)
 
@@ -70,7 +82,7 @@ def hard_assignment_em(
         # E-step
         c_marginals, _ = hmm.nielslief_propagation(x_values)
         c_argmax = np.argmax(c_marginals, axis=1)
-        
+
         # M-step
         (
             lambda_0_hat,
@@ -81,6 +93,7 @@ def hard_assignment_em(
         ) = learn_parameters_everything_observed(c_argmax, observed_focus, x_values)
 
         learned_rates = [lambda_0_hat, lambda_1_hat]
+
         learned_transition_matrix = np.array(
             [[1 - learned_gamma, 0, learned_gamma],
              [0, 1 - learned_gamma, learned_gamma],
@@ -98,5 +111,5 @@ def hard_assignment_em(
         hmm.alpha = learned_alpha
         hmm.transition = learned_transition_matrix
         hmm.rates = learned_rates
-    
+
     return hmm
