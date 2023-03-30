@@ -32,14 +32,11 @@ def learn_parameters_everything_observed(
     # Compute the lambdas as the average stimulis for respective Z-values.
     lambda_0_hat: float = x_values[z_0_mask].sum() / z_0_mask.sum()
     lambda_1_hat: float = x_values[z_1_mask].sum() / z_1_mask.sum()
-
-    # NumPy trick to get sum of (Z_{t,i} = C_t = 0 or 1)
-    alpha_mask = (
-        (z_values == c_values[:, None]).any(axis=1) & (c_values <= 1)
-    )
-
-    alpha_count: int = alpha_mask.sum()
-    alpha_hat: float = alpha_count / c_values.size
+    
+    alpha_1 = z_values[c_values == 1].flatten()
+    print(alpha_1)
+    print(sum(alpha_1), len(alpha_1))
+    alpha_hat: float = sum(alpha_1) / len(alpha_1)
 
     # Used to count cases of beta and gamma transition cases.
     beta_count: int = 0
@@ -96,7 +93,7 @@ def hard_assignment_em(
         diff_transition = abs(hmm.transition - learned_transition_matrix).sum()
         diff_alpha = abs(hmm.alpha - learned_alpha)
 
-        if (diff_rates + diff_transition + diff_alpha) < 1e-9:
+        if (diff_rates**2 + diff_transition**2 + diff_alpha**2) < 1e-9:
             print(f"Found good after {i} iterations!")
             break
 
