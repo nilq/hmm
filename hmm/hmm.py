@@ -33,6 +33,11 @@ class HMM:
         self.processing_modes = processing_modes
         self.rates = rates
 
+        self.p_z_given_c_mat = np.array(
+            [[1 - self.alpha, self.alpha, 0.5],
+             [self.alpha, 1 - self.alpha, 0.5]]
+        )
+
     def sample_poisson_stimuli(self, z_values: IntArray) -> IntArray:
         """Sample Poisson stimuli.
 
@@ -196,6 +201,20 @@ class HMM:
 
         return np.array(messages_from_z_and_c)
 
+    def compute_messages_from_clique_zc_to_cc(
+            self, observations: IntArray
+    ) -> FloatArray:
+        # P(X|Z)
+        p_x_given_z = np.array(
+            [
+                poisson.pmf(observations, self.rates[1]),
+                poisson.pmf(observations, self.rates[0]),
+            ]
+        )
+
+        # return np.array([p_x_given_z[0] * self.p_z_given_c_mat[0, c] + p_x_given_z[1] * self.p_z_given_c_mat[1, c] for c in [0, 1, 2]])
+        return np.einsum("ijk, il -> ljk", p_x_given_z, self.p_z_given_c_mat)
+
     def clique_tree_forward(
         self, observations: IntArray, timestep: int, initial_c: int = 2
     ) -> FloatArray:
@@ -208,7 +227,8 @@ class HMM:
 
         # Forward pass.
 
-        forward_prob = np.ones(len(self.processing_modes))
+        # P(C_1)
+        forward_prob = np.eye(len(self.processing_modes))[initial_c]
 
         for t in range(timestep):
             messages_from_x_and_z = self.compute_messages_from_x_and_z(t, num_nodes, observations)
@@ -216,17 +236,17 @@ class HMM:
                 messages_from_x_and_z, t
             )
 
-            if t == 0:
-                forward_prob = (
-                    messages_from_z_and_c[initial_c] * self.transition[initial_c]
-                )
-            else:
-                forward_prob = np.einsum(
-                    "i, j, ij -> i",
-                    forward_prob,
-                    messages_from_z_and_c,
-                    self.transition,
-                )
+            # if t == 0:
+            #     forward_prob = (
+            #         messages_from_z_and_c[initial_c] * self.transition[initial_c]
+            #     )
+            # else:
+            forward_prob = np.einsum(
+                "i, j, ij -> j",
+                forward_prob,  # P(C, X_prev)
+                messages_from_z_and_c,  # P(X | C)
+                self.transition,  # P(C_next | C)
+            )
 
         return forward_prob
 
@@ -243,19 +263,18 @@ class HMM:
         # Backward pass
         time_steps, num_nodes = observations.shape
 
-        backward_prob = np.ones(len(self.processing_modes))
-
+        backward_prob = np.ones(len(self.processing_modes))  # P(X_(1:T)|C_t)
         for t in range(time_steps - 1, timestep, -1):
             messages_from_x_and_z = self.compute_messages_from_x_and_z(t, num_nodes, observations)
-            messages_from_z_and_c = self.compute_messages_from_z_and_c(
+            messages_from_z_and_c = self.compute_messages_from_z_and_c(  # P(X_t|C_t)
                 messages_from_x_and_z, t
             )
 
-            # Sum over C_prev for P(C|C_prev)P(X1,X2,...|C_prev)
+            # Sum over C_t for P(X_(1:T)|C_t)P(C_t|C_prev)P(X_t|C_t)=P(X_t|C_prev)
             backward_prob = np.einsum(
                 "i, ij, j -> j",
                 backward_prob,
-                self.transition,
+                self.transition,  # self.transition[i][j] -> P(C_t = j| C_prev = i)
                 messages_from_z_and_c,
             )
 
@@ -299,8 +318,8 @@ class HMM:
             messages_from_x_and_z, time_of_c
         )
 
-        # P(X_{1,1},...,X_{t-1,n}, C_t) P(X_{} C_t)
-        joint_with_evidence = forward_prob * backward_prob*messages_from_z_and_c
+        # P(C_t, X_1,...,X_{t-1}) P(X_T,...,X_{t+1}| C_t) P(X_t|C_t) = P(C_t, X^(1:T))
+        joint_with_evidence = forward_prob * backward_prob * messages_from_z_and_c
 
         return joint_with_evidence / np.sum(joint_with_evidence)
 
@@ -329,98 +348,3 @@ class HMM:
         z_given_x = poisson_probs * np.einsum("ij,j->i", z_given_c, joint_with_evidence)
 
         return z_given_x / np.sum(z_given_x)
-
-    def learned_parameters(
-        self, c_values: IntArray, z_values: IntArray, x_values: IntArray
-    ) -> tuple[float, float, float, float, float]:
-        """Learn parameters from observed C, Z and X values.
-
-        Args:
-            c_values (IntArray): Observed processing modes.
-            z_values (IntArray): Observed focus.
-            x_values (IntArray): Observed stimuli.
-
-        Returns:
-            tuple[float, float, float, float, float]:
-                Tuple containing learned parameters:
-                    - lambda_0_hat
-                    - lambda_1_hat
-                    - alpha_hat
-                    - beta_hat
-                    - gamma_hat
-        """
-        time_steps: int = len(c_values)
-
-        # We are interested in these when computing lambda-hat values.
-        z_0_mask = z_values == 0  # Indices where Z_{t,i} = 0
-        z_1_mask = z_values == 1  # ...
-
-        # Compute the lambdas as the average stimulis for respective Z-values.
-        lambda_0_hat: float = x_values[z_0_mask].sum() / z_0_mask.sum()
-        lambda_1_hat: float = x_values[z_1_mask].sum() / z_1_mask.sum()
-
-        # NumPy trick to get sum of (Z_{t,i} = C_t = 0 or 1)
-        alpha_mask = (
-            (z_values == c_values[:, None]).any(axis=1) & (c_values <= 1)
-        ).sum()
-
-        alpha_count: int = alpha_mask.sum()
-        alpha_hat: float = alpha_count / c_values.size
-
-        # Used to count cases of beta and gamma transition cases.
-        beta_count: int = 0
-        gamma_count: int = 0
-
-        # Trivial variable.
-        total_transitions: int = time_steps - 1
-
-        # Count cases of transitions.
-        for t in range(total_transitions):
-            # This is so nice.
-            match (c_values[t], c_values[t + 1]):
-                case (2, 0) | (2, 1):  # From 2 -> {0,1}
-                    beta_count += 1
-                case (0, 2) | (1, 2):  # From {0,1} -> 2
-                    gamma_count += 1
-
-        beta_hat: float = beta_count / total_transitions
-        gamma_hat: float = gamma_count / total_transitions
-
-        return (lambda_0_hat, lambda_1_hat, alpha_hat, beta_hat, gamma_hat)
-
-
-def expectation_maximisation_hard_assignment(
-    joint_prob: FloatArray, num_nodes: int
-) -> tuple[IntArray, IntArray]:
-    """Compute Z and C hard-assignments.
-
-    Args:
-        joint_prob (FloatArray): Infered normalised joint probabilities.
-            You can get this from `HMM.infer`.
-
-    Returns:
-        tuple[IntArray, IntArray]: C a
-    """
-    # Recall dimensions of joint probability tensor:
-    # ... (T-1, num possible Cs at each t, num possible Cs at t + 1)
-    # Thus, time_steps here will be (T-1)
-    time_steps: int = joint_prob.shape[0]
-
-    # Preparation.
-    z_hat = np.zeros((time_steps, num_nodes), dtype=int)
-    c_hat = np.zeros(time_steps, dtype=int)
-
-    for t in range(time_steps):
-        # Star struck. This one is literally in the task description.
-        c_hat[t] = np.argmax(np.sum(joint_prob[t], axis=1))
-
-        for i in range(num_nodes):
-            # Compute marginals, i.e. $P(Z | X, C)$.
-            marginal_probs = np.zeros(2)
-            for z in range(2):
-                marginal_probs[z] = joint_prob[t, c_hat[t], z]
-
-            # No way.
-            z_hat[t, i] = np.argmax(marginal_probs)
-
-    return z_hat, c_hat

@@ -20,9 +20,9 @@ hmm = HMM(
 )
 
 n = 5
-t = 10
+t = 30
 
-c, z, x = hmm.forward(n, t)
+c, z, x = hmm.forward(n, t, seed=449)
 print(c, z, x)
 
 
@@ -33,6 +33,6 @@ for i in range(t):
 
 print()
 # Infer first Z in every timestep
-for i in range(t):
-    marginal = hmm.infer_marginal_z(x, i, 1)
-    print("Z Guess vs actual:", np.argmax(marginal), z[i][1])
+# for i in range(t):
+#     marginal = hmm.infer_marginal_z(x, i, 1)
+#     print("Z Guess vs actual:", np.argmax(marginal), z[i][1])
