@@ -99,34 +99,4 @@ def test_p_x_given_c():
     assert np.all(np.prod(probs_einsum_method, axis=2).T == np.array(probs_old_method))
 
 
-def infer_all_c_and_z_values(hmm: HMM, observations, initial_c: int = 2):
-    time_steps, num_nodes = observations.shape
-    num_processing_modes = len(hmm.processing_modes)
-
-    c_marginals = []
-    z_marginals = []
-
-    for timestep in range(time_steps):
-        forward_prob, backward_prob = hmm.clique_tree_forward_backward(observations, timestep, initial_c)
-
-        # At time t of c_t.
-        messages_from_x_and_z = hmm.compute_messages_from_x_and_z(timestep, num_nodes, observations)
-        messages_from_z_and_c = hmm.compute_messages_from_z_and_c(messages_from_x_and_z, timestep)
-
-        # P(C_t, X_1,...,X_{t-1}) P(X_T,...,X_{t+1}| C_t) P(X_t|C_t) = P(C_t, X^(1:T))
-        joint_with_evidence = forward_prob * backward_prob * messages_from_z_and_c
-
-        c_marginals.append(joint_with_evidence / np.sum(joint_with_evidence))
-
-        z_marginals_t = []
-        for z_index in range(num_nodes):
-            z_given_x = hmm.infer_marginal_z(observations, timestep, z_index, initial_c)
-            z_marginals_t.append(z_given_x)
-
-        z_marginals.append(z_marginals_t)
-
-    return np.array(c_marginals), np.array(z_marginals)
-
 test_p_x_given_c()
-
-print(infer_all_c_and_z_values(hmm, activations))

@@ -107,7 +107,7 @@ class HMM:
         return self.transition[current_c][c_next]
 
     def forward(
-        self, num_nodes: int, time_steps=100, initial_c=2, seed=1
+        self, num_nodes: int, time_steps=100, initial_c=2, seed=None
     ) -> tuple[list[int], FloatArray, FloatArray]:
         """Run forward simulation with specified node amount and time steps.
 
@@ -128,7 +128,7 @@ class HMM:
 
         focus: npt.NDArray[np.int32] = np.array([])
         processing_modes: list[int] = []
-        np.random.seed(seed)
+        np.random.seed(seed) if seed else ...
         for t in range(time_steps):
             z = self.sample_hidden_z(num_nodes, current_c)
             x = self.sample_poisson_stimuli(z)
@@ -176,15 +176,30 @@ class HMM:
     def compute_messages_from_z_and_c(
         self, messages_from_x_and_z, z_index: int | None = None
     ):
-        if z_index is None:
-            all_messages = messages_from_x_and_z
-        else:
-            all_messages = messages_from_x_and_z[:z_index] + messages_from_x_and_z[z_index:]
+        messages_from_z_and_c = []
 
-        # Calculate P(X|C) = sum(P(X|Z=z) * P(Z=z|C=c), over z)
-        messages_from_z_and_c = np.einsum("ij, ki -> kj", all_messages, self.p_z_given_c_mat)
+        for c in self.processing_modes:
+            # Snoop Dogg approved.
+            joint_x_given_c = 1
 
-        return messages_from_z_and_c
+            if z_index is None:
+                all_messages = messages_from_x_and_z
+            else:
+                all_messages = (
+                        messages_from_x_and_z[:z_index] + messages_from_x_and_z[z_index:]
+                )
+
+            for message in all_messages:
+                # P(X|C) = P(X | Z = 0)P(Z = 0 | C) + P(X | Z = 1)P(Z = 1 | C)
+                probability_of_x_given_c = sum(
+                    message[z] * self.p_z_given_c(z, c) for z in range(2)
+                )
+                # P(X_1 | C)P(X_2 | C) = P(X_1, X_2 | C)
+                joint_x_given_c *= probability_of_x_given_c
+
+            messages_from_z_and_c.append(joint_x_given_c)
+
+        return np.array(messages_from_z_and_c)
 
     def compute_messages_from_clique_zc_to_cc(
             self, observations: IntArray
@@ -198,6 +213,7 @@ class HMM:
         )
 
         # return np.array([p_x_given_z[0] * self.p_z_given_c_mat[0, c] + p_x_given_z[1] * self.p_z_given_c_mat[1, c] for c in [0, 1, 2]])
+        # P(X | C)
         return np.einsum("ijk, il -> ljk", p_x_given_z, self.p_z_given_c_mat)
 
     def clique_tree_forward(
@@ -214,12 +230,12 @@ class HMM:
 
         # P(C_1)
         forward_prob = np.eye(len(self.processing_modes))[initial_c]
-
+        p_x_given_c = self.compute_messages_from_clique_zc_to_cc(observations)
         for t in range(timestep):
-            messages_from_x_and_z = self.compute_messages_from_x_and_z(t, num_nodes, observations)
-            messages_from_z_and_c = self.compute_messages_from_z_and_c(
-                messages_from_x_and_z, t
-            )
+            # messages_from_x_and_z = self.compute_messages_from_x_and_z(t, num_nodes, observations)
+            # messages_from_z_and_c = self.compute_messages_from_z_and_c(
+            #     messages_from_x_and_z, t
+            # )
 
             # if t == 0:
             #     forward_prob = (
@@ -229,7 +245,7 @@ class HMM:
             forward_prob = np.einsum(
                 "i, i, ij -> j",
                 forward_prob,  # P(C, X_prev)
-                messages_from_z_and_c,  # P(X | C)
+                np.prod(p_x_given_c[:, t, :], axis=1),  # P(X | C)
                 self.transition,  # P(C_next | C)
             )
 
@@ -249,17 +265,18 @@ class HMM:
         time_steps, num_nodes = observations.shape
 
         backward_prob = np.ones(len(self.processing_modes))  # P(X_(1:T)|C_t)
+        p_x_given_c = self.compute_messages_from_clique_zc_to_cc(observations)
         for t in range(time_steps - 1, timestep, -1):
-            messages_from_x_and_z = self.compute_messages_from_x_and_z(t, num_nodes, observations)
-            messages_from_z_and_c = self.compute_messages_from_z_and_c(  # P(X_t|C_t)
-                messages_from_x_and_z, t
-            )
+            # messages_from_x_and_z = self.compute_messages_from_x_and_z(t, num_nodes, observations)
+            # messages_from_z_and_c = self.compute_messages_from_z_and_c(  # P(X_t|C_t)
+            #     messages_from_x_and_z, t
+            # )
 
             # Sum over C_t for P(X_(1:T)|C_t)P(C_t|C_prev)P(X_t|C_t)=P(X_t|C_prev)
             backward_prob = np.einsum(
                 "i, i, ij -> j",
                 backward_prob,
-                messages_from_z_and_c,
+                np.prod(p_x_given_c[:, t, :], axis=1),
                 self.transition,  # self.transition[i][j] -> P(C_t = j| C_prev = i)
             )
 

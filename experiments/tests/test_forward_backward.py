@@ -31,6 +31,31 @@ def test_marginal_c_when_t_is(t):
 
 
 # test_marginal_c_when_t_is_T()
-#test_marginal_c_when_t_is(0)  ## == [0, 0, 1]
+# test_marginal_c_when_t_is(0)  ## == [0, 0, 1]
 
-test_marginal_c_when_t_is(3)
+# test_marginal_c_when_t_is(3)
+# test_marginal_c_when_t_is(T - 1)  # Inferring last node
+
+def test_c_inference_single(N, t):
+    for_current_t = []
+    for _ in range(N):
+        c_sim, z_sim, x_sim = hmm.forward(n, T)
+        true_c = c_sim[t]  # 0, 1, 2
+        inferred_probabilities = hmm.infer_marginal_c(x_sim, t)
+
+        diff = true_c - inferred_probabilities[true_c]
+
+        for_current_t.append(diff)
+    return for_current_t
+
+
+def test_c_inference(N=100):
+    diff_indicator_c_sub_inferred_c = []
+    for t in range(T):
+        diffs = test_c_inference_single(N, t)
+        diff_indicator_c_sub_inferred_c.append(diffs)
+    return diff_indicator_c_sub_inferred_c
+
+
+res = test_c_inference_single(10000, 3)
+print(np.mean(res))
