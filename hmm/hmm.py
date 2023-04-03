@@ -176,30 +176,15 @@ class HMM:
     def compute_messages_from_z_and_c(
         self, messages_from_x_and_z, z_index: int | None = None
     ):
-        messages_from_z_and_c = []
+        if z_index is None:
+            all_messages = messages_from_x_and_z
+        else:
+            all_messages = messages_from_x_and_z[:z_index] + messages_from_x_and_z[z_index:]
 
-        for c in self.processing_modes:
-            # Snoop Dogg approved.
-            joint_x_given_c = 1
+        # Calculate P(X|C) = sum(P(X|Z=z) * P(Z=z|C=c), over z)
+        messages_from_z_and_c = np.einsum("ij, ki -> kj", all_messages, self.p_z_given_c_mat)
 
-            if z_index is None:
-                all_messages = messages_from_x_and_z
-            else:
-                all_messages = (
-                    messages_from_x_and_z[:z_index] + messages_from_x_and_z[z_index:]
-                )
-
-            for message in all_messages:
-                # P(X|C) = P(X | Z = 0)P(Z = 0 | C) + P(X | Z = 1)P(Z = 1 | C)
-                probability_of_x_given_c = sum(
-                    message[z] * self.p_z_given_c(z, c) for z in range(2)
-                )
-                # P(X_1 | C)P(X_2 | C) = P(X_1, X_2 | C)
-                joint_x_given_c *= probability_of_x_given_c
-
-            messages_from_z_and_c.append(joint_x_given_c)
-
-        return np.array(messages_from_z_and_c)
+        return messages_from_z_and_c
 
     def compute_messages_from_clique_zc_to_cc(
             self, observations: IntArray
@@ -345,6 +330,6 @@ class HMM:
             [poisson.pmf(observations[timestep][z_index], self.rates[z]) for z in (0, 1)]
         )
 
-        z_given_x = poisson_probs * np.einsum("ij,j->i", z_given_c, joint_with_evidence)
+        z_given_x = np.einsum("i, ij, j -> i", poisson_probs, z_given_c, joint_with_evidence)
 
         return z_given_x / np.sum(z_given_x)
