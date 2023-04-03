@@ -242,7 +242,7 @@ class HMM:
             #     )
             # else:
             forward_prob = np.einsum(
-                "i, j, ij -> j",
+                "i, i, ij -> j",
                 forward_prob,  # P(C, X_prev)
                 messages_from_z_and_c,  # P(X | C)
                 self.transition,  # P(C_next | C)
@@ -272,10 +272,10 @@ class HMM:
 
             # Sum over C_t for P(X_(1:T)|C_t)P(C_t|C_prev)P(X_t|C_t)=P(X_t|C_prev)
             backward_prob = np.einsum(
-                "i, ij, j -> j",
+                "i, i, ij -> j",
                 backward_prob,
-                self.transition,  # self.transition[i][j] -> P(C_t = j| C_prev = i)
                 messages_from_z_and_c,
+                self.transition,  # self.transition[i][j] -> P(C_t = j| C_prev = i)
             )
 
         return backward_prob
