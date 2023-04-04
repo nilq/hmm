@@ -55,6 +55,6 @@ class HMM2(HMM):
             #     self.transition  #
             # )
             beta_c[t] = np.dot(self.transition, delta_t_bar) * beta_c[t]
-            downward_prob = beta_c[t] / np.sum(beta_c[t])
+            downward_prob = beta_c[t]
         return np.array(beta_c)
 
