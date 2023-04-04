@@ -18,8 +18,8 @@ hmm = HMM(
     processing_modes=[0, 1, 2],
 )
 
-n = 5
-T = 10
+n = 1
+T = 2
 
 c, z, x = hmm.forward(n, T, seed=1)
 print(c, z, x)
@@ -44,7 +44,7 @@ def test_c_inference_single(N, t):
         true_c = c_sim[t]  # 0, 1, 2
         inferred_probabilities = hmm.infer_marginal_c(x_sim, t)
 
-        diff = np.eye(3)[true_c] - inferred_probabilities
+        diff = np.abs(np.eye(3)[true_c] - inferred_probabilities)
 
         for_current_t.append(diff)
     return np.array(for_current_t)
@@ -52,7 +52,7 @@ def test_c_inference_single(N, t):
 
 def test_c_inference(N=100):
     diff_indicator_c_sub_inferred_c = []
-    for t in range(T):
+    for t in range(1, T):
         print('Inferring 100 rounds for', t)
         diffs = test_c_inference_single(N, t)
         diff_indicator_c_sub_inferred_c.append(diffs)
@@ -62,6 +62,6 @@ def test_c_inference(N=100):
 # res = test_c_inference_single(10000, 3)
 # print(np.mean(res))
 
-res = test_c_inference(500)
+res = test_c_inference(10000)
 print(np.mean(res, axis=1))
-print(np.mean(res))  # WORKS!!
+print(np.mean(res[:, :100, :]), np.mean(res[:, :1000, :]), np.mean(res[:, :5000, :]), np.mean(res))

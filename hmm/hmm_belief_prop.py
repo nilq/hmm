@@ -1,0 +1,60 @@
+"""Hidden Markov Model implementation."""
+import numpy as np
+
+from .hmm import HMM
+
+
+class HMM2(HMM):
+    def __init__(
+        self, *args, **kwargs
+    ) -> None:
+        """Initialise HMM.
+
+        Args:
+            transition (FloatArray): Transition probability matrix.
+            alpha (list[float] | float): Alpha probabilities or probability.
+            processing_modes (list[int]): States for HMM.
+            rates (list[int]): Rates for Poisson sampling of stimuli.
+        """
+        super().__init__(*args, **kwargs)
+
+    def infer_c_belief_propagation(self, observations, initial_c: int = 2):
+        num_modes = len(self.processing_modes)
+        T = len(observations)
+
+        mu_c = np.zeros((T-1, num_modes))
+        beta_c = np.zeros((T, num_modes))
+        p_x_given_c = self.compute_messages_from_clique_zc_to_cc(observations)
+
+        # Upward pass
+        forward_prob = np.eye(len(self.processing_modes))[initial_c] # sigma^(t)(C_{t+1})
+
+        for t in range(T-1):
+            beta_c[t] = np.prod(p_x_given_c[:, t, :], axis=1) * forward_prob
+            beta_c[t] /= np.sum(beta_c[t])  # now is sigma^(t)(C_t), current belief state
+
+            forward_prob = np.einsum(
+                "i, ij -> j",
+                beta_c[t],
+                self.transition,
+            )  # P(C_{t+1} | X^(1:t)) = sigma^(t)(C_{t+1})
+            mu_c[t] = forward_prob  # message between CC and CX cliques
+
+        beta_c[-1] = np.prod(p_x_given_c[:, -1, :], axis=1) * forward_prob
+        beta_c[-1] /= np.sum(beta_c[-1])  # sigma^(T)(C_T), last clique
+
+        # Downward pass
+        downward_prob = beta_c[-1] # P(C_T | X^(1:T))
+        for t in range(T-2, -1, -1):
+            delta_t_bar = downward_prob/mu_c[t]  # P(C_{t+1} | X^(1:T))/sigma^(t)(C_{t+1})
+
+            # beta_c[t] = np.einsum(
+            #     'i, j, ij -> i',
+            #     delta_t_bar,
+            #     beta_c[t],  # sigma^(t)(C_t)
+            #     self.transition  #
+            # )
+            beta_c[t] = np.dot(self.transition, delta_t_bar) * beta_c[t]
+            downward_prob = beta_c[t] / np.sum(beta_c[t])
+        return np.array(beta_c)
+
