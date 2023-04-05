@@ -3,10 +3,14 @@ import numpy as np
 from hmm.hmm import HMM
 from hmm.hmm_belief_prop import HMM2
 
-gamma = 0.5
-beta = 0.8
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+
+gamma = 0.1
+beta = 0.2
 alpha = 0.9
-rates = [1, 20]
+rates = [1, 5]
 n = 1
 T = 2
 
@@ -42,7 +46,7 @@ def test_compare_with_fwbw():
 
 def test_c_inference2(N=100):
     diff_indicator_c_sub_inferred_c = []
-    for round in range(N):
+    for _ in range(N):
         print('Inferring for round', round)
         c, z, x = hmmBU.forward(n, T)
 
@@ -56,5 +60,21 @@ def test_c_inference2(N=100):
 
 
 # test_compare_with_fwbw()
-res = test_c_inference2(10000)
-print(np.mean(res[:100, :, :]), np.mean(res[:1000, :, :]), np.mean(res[:5000, :, :]), np.mean(res))
+l = 1000
+res = test_c_inference2(l)
+
+x = []
+y = []
+# print(np.mean(res[:100, :, :]), np.mean(res[:1000, :, :]), np.mean(res[:5000, :, :]), np.mean(res))
+for i in range(1, l):
+    print(i, np.mean(res[:i, :, :]))
+    x.append(i)
+    y.append(np.mean(res[:i, :, :]))
+
+print(np.mean(res))
+
+sns.relplot(x=np.array(x), y=np.array(y), kind="line")
+sns.set(style="darkgrid")
+sns.set_palette("muted")
+
+plt.show()
