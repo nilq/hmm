@@ -42,10 +42,16 @@ def both_methods(observations):
     p_z1_given_x_all = p_z1_x_all/np.sum(p_z1_x_all)
     print(p_xc/np.sum(p_xc), p_z1_given_x, 'vs', p_z1_given_x_all, p_x2_up_c/np.sum(p_x2_up_c))  # They are not the same, at all
 
+    # Now with belief update semantics
+    p_c_given_x = p_xc/np.sum(p_xc)
+    p_z1_given_x_all_bu = np.sum(p_c_given_x/p_x_given_c[0, :] * p_x_given_z[:, (0,)] * p_z_given_c, axis=1)
+    print(p_z1_given_x_all_bu, p_z1_given_x_all)
 
-for i in range(30):
-    print(i)
-    both_methods(np.array([i, 1, 1]))
 
+# for i in range(30):
+#     print(i)
+#     both_methods(np.array([i, 1, 1]))
+
+both_methods(np.array([23, 1, 1]))
 
 # Solution to paradox, P(Z|C) =/= P(Z|C, X)
