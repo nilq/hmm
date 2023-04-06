@@ -1,11 +1,6 @@
 import numpy as np
 
-from hmm.hmm import HMM
 from hmm.hmm_belief_prop import HMM2
-
-import seaborn as sns
-import matplotlib.pyplot as plt
-
 
 gamma = 0.1
 beta = 0.2
@@ -30,6 +25,6 @@ hmmBU = HMM2(
 
 c, z, x = hmmBU.forward(n, T, seed=449)
 print(c, z, x, sep='\n')
-pc, pz = hmmBU.infer_c_belief_propagation(x)
+pc, pz = hmmBU.infer_hidden_belief_propagation(x)
 
 print(pc, pz)
