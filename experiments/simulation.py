@@ -41,9 +41,7 @@ def forward_simulation(
     """
     transition = transition(gamma, beta)
     # simulate
-    hmm = HMM(
-        transition, alpha, rates=rates, processing_modes=[0, 1, 2]
-    )
+    hmm = HMM(transition, alpha, rates=rates, processing_modes=[0, 1, 2])
 
     return hmm.forward(n, t)
 
