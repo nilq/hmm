@@ -18,7 +18,7 @@ class HMM2(HMM):
         """
         super().__init__(*args, **kwargs)
 
-    def infer_c_belief_propagation(self, observations, initial_c: int = 2):
+    def infer_hidden_belief_propagation(self, observations, initial_c: int = 2):
         num_modes = len(self.processing_modes)
         T, n = observations.shape
 
