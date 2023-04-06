@@ -203,7 +203,7 @@ class HMM:
 
     def compute_messages_from_clique_zc_to_cc(
             self, observations: IntArray
-    ) -> FloatArray:
+    ):
         # P(X|Z)
         p_x_given_z = np.array(
             [
@@ -214,7 +214,8 @@ class HMM:
 
         # return np.array([p_x_given_z[0] * self.p_z_given_c_mat[0, c] + p_x_given_z[1] * self.p_z_given_c_mat[1, c] for c in [0, 1, 2]])
         # P(X | C)
-        return np.einsum("ijk, il -> ljk", p_x_given_z, self.p_z_given_c_mat)
+        p_x_given_c = np.einsum("ijk, il -> ljk", p_x_given_z, self.p_z_given_c_mat)
+        return p_x_given_z, p_x_given_c
 
     def clique_tree_forward(
         self, observations: IntArray, timestep: int, initial_c: int = 2
@@ -230,7 +231,7 @@ class HMM:
 
         # P(C_1)
         forward_prob = np.eye(len(self.processing_modes))[initial_c]
-        p_x_given_c = self.compute_messages_from_clique_zc_to_cc(observations)
+        _, p_x_given_c = self.compute_messages_from_clique_zc_to_cc(observations)
         for t in range(timestep):
             # messages_from_x_and_z = self.compute_messages_from_x_and_z(t, num_nodes, observations)
             # messages_from_z_and_c = self.compute_messages_from_z_and_c(
@@ -265,7 +266,7 @@ class HMM:
         time_steps, num_nodes = observations.shape
 
         backward_prob = np.ones(len(self.processing_modes))  # P(X_(1:T)|C_t)
-        p_x_given_c = self.compute_messages_from_clique_zc_to_cc(observations)
+        _, p_x_given_c = self.compute_messages_from_clique_zc_to_cc(observations)
         for t in range(time_steps - 1, timestep, -1):
             # messages_from_x_and_z = self.compute_messages_from_x_and_z(t, num_nodes, observations)
             # messages_from_z_and_c = self.compute_messages_from_z_and_c(  # P(X_t|C_t)
