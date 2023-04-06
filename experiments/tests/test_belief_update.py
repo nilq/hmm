@@ -6,7 +6,6 @@ from hmm.hmm_belief_prop import HMM2
 import seaborn as sns
 import matplotlib.pyplot as plt
 
-
 gamma = 0.1
 beta = 0.2
 alpha = 0.9
@@ -43,6 +42,7 @@ def test_compare_c_with_fwbw():
     for p1, p2 in zip(marginal_fw_bw, marginal_fw_bw_BU):
         print('FW-BW vs BU', p1, p2)
 
+
 def test_inference_absolute_error(N=100, start_seed=1):
     absolute_error_c = []
     absolute_error_z = []
@@ -57,14 +57,16 @@ def test_inference_absolute_error(N=100, start_seed=1):
         # for C
         arr_c = np.zeros(inferred_probs_c.shape)
         arr_c[np.arange(T), c] = 1
-        ae_c = np.abs(arr_c - inferred_probs_c)
+        # ae_c = np.abs(arr_c - inferred_probs_c)
+        ae_c = arr_c - inferred_probs_c
         absolute_error_c.append(ae_c)
 
         # for Z
         arr_z = np.zeros(inferred_probs_z.shape)
         arr_z[:, :, 0] = z == 0
         arr_z[:, :, 1] = z == 1
-        ae_z = np.abs(arr_z - inferred_probs_z)
+        # ae_z = np.abs(arr_z - inferred_probs_z)
+        ae_z = arr_z - inferred_probs_z
         absolute_error_z.append(ae_z)
     return np.array(absolute_error_c), np.array(absolute_error_z)
 
@@ -88,7 +90,10 @@ def sim_and_plot(N=10000):
 
     plt.show()
 
+    return c_errors, z_errors
 
-sim_and_plot()
+
+c_errors, z_errors = sim_and_plot()
+print(c_errors, z_errors, sep='\n')
 # absolute_error_c, absolute_error_z = test_inference_absolute_error(1000)
 # print(np.mean(absolute_error_c), np.mean(absolute_error_z))
