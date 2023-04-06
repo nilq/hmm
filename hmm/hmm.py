@@ -34,8 +34,8 @@ class HMM:
         self.rates = rates
 
         self.p_z_given_c_mat = np.array(
-            [[1 - self.alpha, self.alpha, 0.5],
-             [self.alpha, 1 - self.alpha, 0.5]]
+            [[self.alpha, 1-self.alpha, 0.5],
+             [1-self.alpha, self.alpha, 0.5]]
         )
 
     def sample_poisson_stimuli(self, z_values: IntArray) -> IntArray:
