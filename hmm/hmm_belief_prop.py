@@ -20,11 +20,12 @@ class HMM2(HMM):
 
     def infer_c_belief_propagation(self, observations, initial_c: int = 2):
         num_modes = len(self.processing_modes)
-        T = len(observations)
+        T, n = observations.shape
 
         mu_c = np.zeros((T-1, num_modes))
         beta_c = np.zeros((T, num_modes))
-        p_x_given_c = self.compute_messages_from_clique_zc_to_cc(observations)
+        beta_z = np.zeros((T, n, 2))
+        p_x_given_z, p_x_given_c = self.compute_messages_from_clique_zc_to_cc(observations)
 
         # Upward pass
         forward_prob = np.eye(len(self.processing_modes))[initial_c] # sigma^(t)(C_{t+1})
@@ -47,14 +48,17 @@ class HMM2(HMM):
         downward_prob = beta_c[-1] # P(C_T | X^(1:T))
         for t in range(T-2, -1, -1):
             delta_t_bar = downward_prob/mu_c[t]  # P(C_{t+1} | X^(1:T))/sigma^(t)(C_{t+1})
-
-            # beta_c[t] = np.einsum(
-            #     'i, j, ij -> i',
-            #     delta_t_bar,
-            #     beta_c[t],  # sigma^(t)(C_t)
-            #     self.transition  #
-            # )
             beta_c[t] = np.dot(self.transition, delta_t_bar) * beta_c[t]
             downward_prob = beta_c[t]
-        return np.array(beta_c)
+
+        # Downward pass to Z's
+        for t in range(T):
+            p_c_given_x = beta_c[t]
+            for i in range(n):
+                beta_z[t, i] = np.sum(
+                    p_c_given_x/p_x_given_c[:, t, i] * p_x_given_z[:, t, (i,)] * self.p_z_given_c_mat,
+                    axis=1
+                )
+
+        return beta_c, beta_z
 
