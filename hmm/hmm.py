@@ -128,7 +128,7 @@ class HMM:
 
         focus: npt.NDArray[np.int32] = np.array([])
         processing_modes: list[int] = []
-        np.random.seed(seed)
+        np.random.seed(seed) if seed else ...
         for t in range(time_steps):
             z = self.sample_hidden_z(num_nodes, current_c)
             x = self.sample_poisson_stimuli(z)
@@ -207,8 +207,8 @@ class HMM:
         # P(X|Z)
         p_x_given_z = np.array(
             [
-                poisson.pmf(observations, self.rates[1]),
                 poisson.pmf(observations, self.rates[0]),
+                poisson.pmf(observations, self.rates[1]),
             ]
         )
 
