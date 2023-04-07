@@ -46,7 +46,9 @@ class HMM2(HMM):
             mu_c[t] = forward_prob  # message between CC and CX cliques
 
         beta_c[-1] = np.prod(p_x_given_c[:, -1, :], axis=1) * forward_prob
-        beta_c[-1] /= np.sum(beta_c[-1])  # sigma^(T)(C_T), last clique
+        normalization = np.sum(beta_c[-1])
+        beta_c[-1] /= normalization  # sigma^(T)(C_T), last clique
+        c_t[-1] = normalization
 
         # Downward pass
         downward_prob = beta_c[-1] # P(C_T | X^(1:T))
