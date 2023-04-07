@@ -25,6 +25,6 @@ hmmBU = HMM2(
 
 c, z, x = hmmBU.forward(n, T, seed=449)
 print(c, z, x, sep='\n')
-pc, pz = hmmBU.infer_hidden_belief_propagation(x)
+pc, pz, _ = hmmBU.infer_hidden_belief_propagation(x)
 
 print(pc, pz)

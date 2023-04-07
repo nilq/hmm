@@ -30,9 +30,13 @@ class HMM2(HMM):
         # Upward pass
         forward_prob = np.eye(len(self.processing_modes))[initial_c] # sigma^(t)(C_{t+1})
 
+        c_t = np.zeros(T)
         for t in range(T-1):
             beta_c[t] = np.prod(p_x_given_c[:, t, :], axis=1) * forward_prob
-            beta_c[t] /= np.sum(beta_c[t])  # now is sigma^(t)(C_t), current belief state
+            normalization = np.sum(beta_c[t])
+            beta_c[t] /= normalization  # now is sigma^(t)(C_t), current belief state
+
+            c_t[t] = normalization
 
             forward_prob = np.einsum(
                 "i, ij -> j",
@@ -60,5 +64,5 @@ class HMM2(HMM):
                     axis=1
                 )
 
-        return beta_c, beta_z
+        return beta_c, beta_z, c_t
 
