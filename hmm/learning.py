@@ -1,7 +1,7 @@
 import numpy as np
-from hmm.hmm import HMM
 
-from hmm.types import IntArray, FloatArray
+from hmm.hmm_belief_prop import HMM2
+from hmm.types import IntArray
 
 
 def learn_parameters_everything_observed(
@@ -33,13 +33,12 @@ def learn_parameters_everything_observed(
     lambda_0_hat: float = x_values[z_0_mask].sum() / z_0_mask.sum()
     lambda_1_hat: float = x_values[z_1_mask].sum() / z_1_mask.sum()
 
+    alpha_0 = z_values[c_values == 0].flatten()
     alpha_1 = z_values[c_values == 1].flatten()
-    if len(alpha_1) == 0:
-        alpha_0 = z_values[c_values == 1].flatten()
-        alpha_hat = 1 - (sum(alpha_0) / len(alpha_0))
-    else:
-        alpha_hat: float = sum(alpha_1) / len(alpha_1)
+    alpha_hat0 = 1 - (sum(alpha_0) / alpha_0.size) if alpha_0.size else 0
+    alpha_hat1 = (sum(alpha_1) / alpha_1.size) if alpha_1.size else 0
 
+    alpha_hat = (alpha_hat1 + alpha_hat0) / sum((alpha_hat1 != 0, alpha_hat0 != 0))
     # Used to count cases of beta and gamma transition cases.
     beta_count: int = 0
     beta_total: int = 0
@@ -67,21 +66,37 @@ def learn_parameters_everything_observed(
     beta_hat: float = beta_count / beta_total
     gamma_hat: float = gamma_count / gamma_total
 
-    return (lambda_0_hat, lambda_1_hat, alpha_hat, beta_hat, gamma_hat)
+    return lambda_0_hat, lambda_1_hat, alpha_hat, beta_hat, gamma_hat
 
 
 def hard_assignment_em(
     x_values: IntArray,
-    observed_focus: IntArray,
-    hmm: HMM,
     max_iterations: int = 100,
-) -> HMM:
-    time_steps, num_nodes = x_values.shape
+    initial_gamma: float = 0.5,
+    initial_beta: float = 0.4,
+    initial_alpha: float = 0.7,
+    initial_rates: tuple[float, float] = (1, 20),
+):
+    # initial values
+    transition_matrix = np.array(
+        [[1 - initial_gamma, 0, initial_gamma],
+        [0, 1 - initial_gamma, initial_gamma],
+        [initial_beta / 2, initial_beta / 2, 1 - initial_beta]]
+    )
+
+    learned_hmm = HMM2(transition_matrix, initial_alpha, rates=initial_rates, processing_modes=[0, 1, 2])
+    print('Learning with initial parameters:')
+    print('Initial rates:', initial_rates)
+    print('Initial gamma:', initial_gamma)
+    print('Initial beta:', initial_beta)
+    print('Initial alpha:', initial_alpha)
 
     for i in range(max_iterations):
+        print(f"Learning iteration {i}...")
         # E-step
-        c_marginals, _ = hmm.nielslief_propagation(x_values)
+        c_marginals, z_marginals = learned_hmm.infer_hidden_belief_propagation(x_values)
         c_argmax = np.argmax(c_marginals, axis=1)
+        z_argmax = np.argmax(z_marginals, axis=2)
 
         # M-step
         (
@@ -90,9 +105,14 @@ def hard_assignment_em(
             learned_alpha,
             learned_beta,
             learned_gamma
-        ) = learn_parameters_everything_observed(c_argmax, observed_focus, x_values)
+        ) = learn_parameters_everything_observed(c_argmax, z_argmax, x_values)
 
         learned_rates = [lambda_0_hat, lambda_1_hat]
+
+        print('Learned rates:', learned_rates)
+        print('Learned gamma:', learned_gamma)
+        print('Learned beta:', learned_beta)
+        print('Learned alpha:', learned_alpha)
 
         learned_transition_matrix = np.array(
             [[1 - learned_gamma, 0, learned_gamma],
@@ -100,16 +120,17 @@ def hard_assignment_em(
              [learned_beta / 2, learned_beta / 2, 1 - learned_beta]]
         )
 
-        diff_rates = abs(np.array(hmm.rates) - np.array(learned_rates)).sum()
-        diff_transition = abs(hmm.transition - learned_transition_matrix).sum()
-        diff_alpha = abs(hmm.alpha - learned_alpha)
 
-        if (diff_rates**2 + diff_transition**2 + diff_alpha**2) < 1e-9:
+        diff_rates = abs(np.array(learned_hmm.rates) - np.array(learned_rates)).sum()
+        diff_transition = abs(learned_hmm.transition - learned_transition_matrix).sum()
+        diff_alpha = abs(learned_hmm.alpha - learned_alpha)
+
+        if (diff_rates**2 + diff_transition**2 + diff_alpha**2) < 1e-29:
             print(f"Found good after {i} iterations!")
             break
 
-        hmm.alpha = learned_alpha
-        hmm.transition = learned_transition_matrix
-        hmm.rates = learned_rates
+        learned_hmm.alpha = learned_alpha
+        learned_hmm.transition = learned_transition_matrix
+        learned_hmm.rates = learned_rates
 
-    return hmm
+    return learned_gamma, learned_beta, learned_alpha, *learned_rates
