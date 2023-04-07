@@ -72,17 +72,13 @@ def learn_parameters_everything_observed(
 def hard_assignment_em(
     x_values: IntArray,
     max_iterations: int = 100,
-    initial_gamma: float = 0.5,
-    initial_beta: float = 0.4,
-    initial_alpha: float = 0.7,
-    initial_rates: tuple[float, float] = (1, 20),
+    initial_gamma=0.5,
+    initial_alpha=0.51,
+    initial_beta=0.8,
+    initial_rates=(1, 5)
 ):
     # initial values
-    transition_matrix = np.array(
-        [[1 - initial_gamma, 0, initial_gamma],
-        [0, 1 - initial_gamma, initial_gamma],
-        [initial_beta / 2, initial_beta / 2, 1 - initial_beta]]
-    )
+    transition_matrix = make_transition_matrix_from_values(initial_gamma, initial_beta)
 
     learned_hmm = HMM2(transition_matrix, initial_alpha, rates=initial_rates, processing_modes=[0, 1, 2])
     print('Learning with initial parameters:')
@@ -91,10 +87,11 @@ def hard_assignment_em(
     print('Initial beta:', initial_beta)
     print('Initial alpha:', initial_alpha)
 
+    small_diff_count = 0
     for i in range(max_iterations):
         print(f"Learning iteration {i}...")
         # E-step
-        c_marginals, z_marginals, _ = learned_hmm.infer_hidden_belief_propagation(x_values)
+        c_marginals, z_marginals, x_probs = learned_hmm.infer_hidden_belief_propagation(x_values)
         c_argmax = np.argmax(c_marginals, axis=1)
         z_argmax = np.argmax(z_marginals, axis=2)
 
@@ -113,24 +110,29 @@ def hard_assignment_em(
         print('Learned gamma:', learned_gamma)
         print('Learned beta:', learned_beta)
         print('Learned alpha:', learned_alpha)
-
-        learned_transition_matrix = np.array(
-            [[1 - learned_gamma, 0, learned_gamma],
-             [0, 1 - learned_gamma, learned_gamma],
-             [learned_beta / 2, learned_beta / 2, 1 - learned_beta]]
-        )
-
+        print('X probs:', np.prod(x_probs))
+        learned_transition_matrix = make_transition_matrix_from_values(learned_gamma, learned_beta)
 
         diff_rates = abs(np.array(learned_hmm.rates) - np.array(learned_rates)).sum()
         diff_transition = abs(learned_hmm.transition - learned_transition_matrix).sum()
         diff_alpha = abs(learned_hmm.alpha - learned_alpha)
 
         if (diff_rates**2 + diff_transition**2 + diff_alpha**2) < 1e-29:
-            print(f"Found good after {i} iterations!")
-            break
+            small_diff_count += 1
+            if small_diff_count > 3:
+                print(f"Found good after {i} iterations!")
+                break
+        else:
+            small_diff_count = 0
 
-        learned_hmm.alpha = learned_alpha
-        learned_hmm.transition = learned_transition_matrix
-        learned_hmm.rates = learned_rates
+        learned_hmm = HMM2(learned_transition_matrix, learned_alpha, rates=learned_rates, processing_modes=[0, 1, 2])
 
     return learned_gamma, learned_beta, learned_alpha, *learned_rates
+
+
+def make_transition_matrix_from_values(gamma, beta):
+    return np.array(
+        [[1 - gamma, 0, gamma],
+         [0, 1 - gamma, gamma],
+         [beta / 2, beta / 2, 1 - beta]]
+    )

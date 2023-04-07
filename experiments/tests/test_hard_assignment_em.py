@@ -4,12 +4,12 @@ from hmm.hmm_belief_prop import HMM2
 from hmm.learning import hard_assignment_em
 
 # Parameters from assignment
-gamma = 0.1
-beta = 0.2
+gamma = 0.3
+beta = 0.5
 alpha = 0.9
-rates = (1, 5)
+rates = (1, 9)
 n = 10
-T = 500
+T = 100
 
 # This is uppercase-gamma.
 transition_matrix = np.array([
@@ -41,13 +41,7 @@ def test_hard_assignment_em_initial(observations):
     print('True gamma:', gamma)
     print('True beta:', beta)
     print('True alpha:', alpha)
-    return hard_assignment_em(
-        observations,
-        initial_gamma=gamma+0.15,
-        initial_alpha=alpha-0.1,
-        initial_beta=beta+0.25,
-        initial_rates=rates
-    )
+    return hard_assignment_em(observations)
 
 
 def test_hard_assignment_em_iterations(iterations=10):
@@ -61,7 +55,8 @@ def test_hard_assignment_em_iterations(iterations=10):
     print('Learned parameters:', np.mean(learned_parameters, axis=0))
     return learned_parameters
 
+
 # test_hard_assignment_em()
-# test_hard_assignment_em_initial()
-learned_parameters = test_hard_assignment_em_iterations(1000)
+test_hard_assignment_em_initial(x)
+# learned_parameters = test_hard_assignment_em_iterations(1000)
 print('Done')
