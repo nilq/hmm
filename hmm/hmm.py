@@ -212,7 +212,6 @@ class HMM:
             ]
         )
 
-        # return np.array([p_x_given_z[0] * self.p_z_given_c_mat[0, c] + p_x_given_z[1] * self.p_z_given_c_mat[1, c] for c in [0, 1, 2]])
         # P(X | C)
         p_x_given_c = np.einsum("ijk, il -> ljk", p_x_given_z, self.p_z_given_c_mat)
         return p_x_given_z, p_x_given_c
