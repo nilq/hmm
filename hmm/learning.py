@@ -88,6 +88,7 @@ def hard_assignment_em(
     print('Initial alpha:', initial_alpha)
 
     small_diff_count = 0
+    learned_parameters_iterations = [[initial_gamma, initial_beta, initial_alpha, initial_rates[0], initial_rates[1]]]
     for i in range(max_iterations):
         print(f"Learning iteration {i}...")
         # E-step
@@ -103,7 +104,7 @@ def hard_assignment_em(
             learned_beta,
             learned_gamma
         ) = learn_parameters_everything_observed(c_argmax, z_argmax, x_values)
-
+        learned_parameters_iterations.append([learned_gamma, learned_beta, learned_alpha, lambda_0_hat, lambda_1_hat])
         learned_rates = [lambda_0_hat, lambda_1_hat]
 
         print('Learned rates:', learned_rates)
@@ -127,7 +128,7 @@ def hard_assignment_em(
 
         learned_hmm = HMM2(learned_transition_matrix, learned_alpha, rates=learned_rates, processing_modes=[0, 1, 2])
 
-    return learned_gamma, learned_beta, learned_alpha, *learned_rates
+    return (learned_gamma, learned_beta, learned_alpha, *learned_rates), np.array(learned_parameters_iterations)
 
 
 def make_transition_matrix_from_values(gamma, beta):

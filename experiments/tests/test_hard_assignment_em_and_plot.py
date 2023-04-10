@@ -39,7 +39,8 @@ def test_hard_assignment_em_initial(observations, max_itter, start_values):
     print('True beta:', beta)
     print('True alpha:', alpha)
     initial_gamma, initial_alpha, initial_beta, *initial_rates = start_values
-    return hard_assignment_em(observations, max_itter, initial_gamma=initial_gamma, initial_alpha=initial_alpha, initial_beta=initial_beta, initial_rates=initial_rates)
+    res, _ = hard_assignment_em(observations, max_itter, initial_gamma=initial_gamma, initial_alpha=initial_alpha, initial_beta=initial_beta, initial_rates=initial_rates)
+    return res
 
 
 # def calculate_error(true_params, learned_hmm):
