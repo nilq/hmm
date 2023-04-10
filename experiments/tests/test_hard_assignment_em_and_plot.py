@@ -96,14 +96,15 @@ def calculate_errors_for_start_value(args):
     
     for i, error_tuple in enumerate(errors):
         c_error, _ = error_tuple
-        error_data.append([i, idx, 'C error', c_error])
+        error_data.append([i, idx, 'C error', 1-c_error])
 
     return error_data
 
 
 def run_experiment(j):
     start_values = [
-        (0.1, 0.9, i/10, 1, 5) for i in range(1, 10)
+        # (0.1, 0.9, i/10, 1, 5) for i in range(1, 10)
+        (0.5, 0.2, 10, 10, 3),
     ]
 
     all_error_data = []
@@ -115,9 +116,12 @@ def run_experiment(j):
         if error_data:
             all_error_data.extend(error_data)
 
-    df = pd.DataFrame(all_error_data, columns=['Iteration', 'Start Value', 'Parameter', 'Error'])
-    sns.relplot(data=df, kind="line", x='Iteration', y='Error', hue='Start Value', style='Parameter', ci="sd")
-    plt.title('Convergence of HMM prediction')
+    df = pd.DataFrame(all_error_data, columns=['Iteration', 'Start Value', 'Parameter', 'Accuracy'])
+    sns.relplot(data=df, kind="line", x='Iteration', y='Accuracy', hue='Start Value', style='Parameter', ci="sd")
+    sns.set(style="darkgrid")
+    sns.set_palette("muted")
+    plt.grid()
+    plt.title('Accuracy of inference HMM prediction on C given X')
     plt.show()
 
 
