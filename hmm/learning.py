@@ -92,8 +92,8 @@ def hard_assignment_em(
         print(f"Learning iteration {i}...")
         # E-step
         c_marginals, z_marginals, x_probs = learned_hmm.infer_hidden_belief_propagation(x_values)
-        c_argmax = np.argmax(c_marginals, axis=1)
-        z_argmax = np.argmax(z_marginals, axis=2)
+        c_argmax = np.argmax(np.log(c_marginals), axis=1)
+        z_argmax = np.argmax(np.log(z_marginals), axis=2)
 
         # M-step
         (
